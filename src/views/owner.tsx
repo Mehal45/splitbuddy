@@ -76,13 +76,13 @@ export function OwnerDashboard() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+        <Card className="min-w-0 xl:col-span-2">
           <CardHeader className="flex items-center justify-between"><div><CardTitle>Alerts</CardTitle><CardDescription className="mt-1">{alerts.length} things need attention</CardDescription></div><Button variant="outline" size="sm" asChild><Link href="/alerts">View all</Link></Button></CardHeader>
           <CardContent className="grid max-h-[360px] gap-2 overflow-y-auto">
             {alerts.length === 0 ? <EmptyState title="No alerts" /> : alerts.map((a) => <AlertRow key={a.id} a={a} />)}
           </CardContent>
         </Card>
-        <Card>
+        <Card className="min-w-0">
           <CardHeader><CardTitle>Top dues</CardTitle><CardDescription>Highest outstanding amounts</CardDescription></CardHeader>
           <CardContent className="grid gap-2">
             {topDues.map(({ c, b }) => {
