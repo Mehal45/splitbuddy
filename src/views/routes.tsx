@@ -9,6 +9,7 @@ import { LoadSheetsView } from "./loads";
 import { AlertsView, FleetView, OwnerDashboard } from "./owner";
 import { ReconciliationView } from "./reconciliation";
 import { ReportsView } from "./reports";
+import { ActivityView } from "./activity";
 import { MovementsView, StockView } from "./stock";
 import { WarehouseHome } from "./warehouse-home";
 import { useStore } from "@/lib/store";
@@ -51,6 +52,7 @@ export const ROUTES: RouteDef[] = [
   { pattern: "/reports", roles: ["owner"], render: () => <ReportsView /> },
   { pattern: "/tally", roles: ["owner"], render: () => <TallyView /> },
   { pattern: "/settings", roles: ["owner"], render: () => <SettingsView /> },
+  { pattern: "/activity", roles: ["owner"], render: () => <ActivityView /> },
   { pattern: "/driver/new", roles: ["driver"], render: () => <NewDeliveryView /> },
   { pattern: "/driver/history", roles: ["driver"], render: () => <DriverHistoryView /> },
   { pattern: "/me/deliveries", roles: ["customer"], render: () => <MyAccount tab="deliveries" /> },

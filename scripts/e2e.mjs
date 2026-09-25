@@ -7,12 +7,16 @@ import path from "node:path";
 
 const root = path.resolve("out");
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+// Same security headers as production (vercel.json), minus HTTPS-only ones on localhost
+const prodHeaders = Object.fromEntries(JSON.parse(fs.readFileSync("vercel.json", "utf8")).headers[0].headers
+  .filter((h) => h.key !== "Strict-Transport-Security")
+  .map((h) => [h.key, h.value.replace("; upgrade-insecure-requests", "")]));
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split("?")[0]);
   if (p.endsWith("/")) p += "index.html";
   const f = path.join(root, p);
   if (!fs.existsSync(f)) { res.writeHead(404); return res.end(); }
-  res.writeHead(200, { "content-type": types[path.extname(f)] ?? "application/octet-stream" });
+  res.writeHead(200, { ...prodHeaders, "content-type": types[path.extname(f)] ?? "application/octet-stream" });
   fs.createReadStream(f).pipe(res);
 }).listen(0);
 const base = `http://localhost:${server.address().port}/`;
@@ -21,6 +25,7 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
+page.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|Refused to/i.test(m.text())) errors.push(`CSP: ${m.text()}`); });
 const step = (s) => console.log("✓", s);
 const db = () => page.evaluate(() => JSON.parse(localStorage.getItem("anmol-gas-demo:db")));
 
@@ -34,6 +39,9 @@ step("owner page rejects a wrong PIN");
 // Driver logs in on their own page with mobile number + OTP
 await page.goto(base + "#driver");
 await page.getByLabel("Mobile number").fill("12345 67890");
+await page.getByRole("button", { name: "Send OTP" }).click();
+await page.getByText("Enter a 10-digit Indian mobile number").waitFor();
+await page.getByLabel("Mobile number").fill("90000 00001");
 await page.getByRole("button", { name: "Send OTP" }).click();
 await page.getByText("isn't registered as a driver").waitFor();
 const ravi = (await db()).users.find((u) => u.id === "u-dr1");
@@ -152,6 +160,91 @@ await page.getByRole("button", { name: "Reset", exact: true }).click();
 await page.getByText(/Demo data reset/).waitFor();
 if ((await db()).deliveries.some((d) => d.id === newD.id && d.customerId === newD.customerId && d.payment?.mode === "upi" && d.ts === newD.ts)) throw new Error("reset failed");
 step("reset demo data");
+
+// ---------- attack / misuse cases ----------
+const loginAs = async (userId) => {
+  await page.evaluate((u) => localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: u, remember: true, expiresAt: Date.now() + 36e5 })), userId);
+  await page.goto(base + "#/"); await page.reload();
+  await page.getByText(/^Demo( · sample data)?$/).first().waitFor(); // signed-in shell is up
+};
+
+// A forged session without a valid expiry is ignored
+await page.evaluate(() => localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: "u-owner" })));
+await page.reload();
+await page.getByText("Owner login").waitFor();
+step("forged/expired session is ignored (back to login)");
+
+// Driver can't open staff pages
+await loginAs("u-dr1");
+await page.goto(base + "#/customers");
+await page.getByText("This page isn't available for your role.").waitFor();
+await page.goto(base + "#/settings");
+await page.getByText("This page isn't available for your role.").waitFor();
+step("driver blocked from customers and settings");
+
+// Customer can't open someone else's invoice
+const other = (await db()).invoices.find((i) => i.kind === "sale" && i.partyId !== "c1");
+await loginAs("u-c1");
+await page.goto(base + `#/invoices/${other.id}`);
+await page.getByText("Invoice not found").waitFor();
+step("customer cannot open another customer's invoice");
+
+// Excel formula injection through a customer name is neutralised in CSV exports
+await loginAs("u-owner");
+await page.goto(base + "#/customers");
+await page.getByRole("button", { name: "Add customer" }).click();
+const dlg = page.getByRole("dialog");
+await dlg.getByLabel("Contact name").fill('=HYPERLINK("http://evil.example","x")');
+await dlg.locator("input[inputmode=tel]").fill("9000011122");
+await dlg.getByLabel("GSTIN").fill("29ABCDE1234F1Z5");
+await dlg.getByRole("button", { name: "Save" }).click();
+await page.getByText("Customer added").waitFor();
+const [csvDl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
+const csv = fs.readFileSync(await csvDl.path(), "utf8");
+if (!csv.includes(`'=HYPERLINK`) || /(^|,)=HYPERLINK/m.test(csv)) throw new Error("CSV formula injection not neutralised");
+step("CSV export neutralises formula injection");
+
+// Duplicate phone numbers are refused (would let two people share a login)
+await page.getByRole("button", { name: "Add customer" }).click();
+await dlg.getByLabel("Contact name").fill("Duplicate Person");
+await dlg.locator("input[inputmode=tel]").fill("9000011122");
+await dlg.getByRole("button", { name: "Save" }).click();
+await dlg.getByText("already belongs to another login").waitFor();
+await page.keyboard.press("Escape");
+step("duplicate phone number rejected");
+
+// Activity log records what happened, including failed sign-ins
+await page.goto(base + "#/activity");
+await page.getByText("Customer added").first().waitFor();
+await page.getByText("Demo data reset").first().waitFor();
+step("activity log shows who added the customer and who reset the data");
+
+// Damaged saved data is replaced instead of crashing the app
+await page.evaluate(() => localStorage.setItem("anmol-gas-demo:db", "{not valid json"));
+await page.reload();
+await page.getByRole("heading", { name: /Owner login|Good day|Activity log/ }).first().waitFor();
+await page.evaluate(() => localStorage.setItem("anmol-gas-demo:db", JSON.stringify({ version: 5, users: "oops" })));
+await page.reload();
+await page.getByText("Saved demo data was damaged").waitFor();
+step("corrupted saved data recovered without a crash");
+
+// Guessing the owner PIN locks the form
+await page.evaluate(() => { localStorage.removeItem("anmol-gas-demo:session"); sessionStorage.clear(); });
+await page.goto(base + "#/"); await page.reload();
+for (let i = 0; i < 5; i++) {
+  await page.getByLabel("PIN digit 1").fill("9876");
+  await page.getByRole("button", { name: "Unlock" }).click();
+}
+await page.getByText(/Too many wrong PINs\. Try again in/).waitFor();
+if (!(await page.getByRole("button", { name: "Unlock" }).isDisabled())) throw new Error("lock should disable the form");
+step("5 wrong PINs lock the owner login");
+
+// The failed attempts show up for the owner
+await page.evaluate(() => localStorage.removeItem("anmol-gas-demo:attempts:owner-pin"));
+await loginAs("u-owner");
+await page.goto(base + "#/activity");
+await page.getByText(/failed sign-in attempts? in the last 24 hours/).waitFor();
+step("owner sees failed sign-in attempts in the activity log");
 
 await browser.close();
 server.close();

@@ -211,6 +211,20 @@ export interface SyncLogEntry {
   vouchers: { type: "Sales" | "Purchase" | "Receipt"; no: string; party: string; amount: number }[];
 }
 
+export type AuditAction =
+  | "login" | "login_failed" | "logout" | "view_as"
+  | "delivery_submitted" | "delivery_approved" | "delivery_rejected"
+  | "load_sheet" | "reconciliation" | "purchase" | "payment" | "stock_state_change"
+  | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset";
+
+export interface AuditEntry {
+  id: string;
+  ts: string;
+  userId: string; // who did it ("anonymous" for failed logins)
+  action: AuditAction;
+  detail: string;
+}
+
 export interface DB {
   version: number;
   seededAt: string;
@@ -229,4 +243,5 @@ export interface DB {
   syncLog: SyncLogEntry[];
   lastSyncedAt: string | null;
   counters: Record<string, number>;
+  audit?: AuditEntry[]; // newest last, capped (see engine.logAudit)
 }

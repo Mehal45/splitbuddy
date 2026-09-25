@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, PageHeader, Stepper } from "@/components/app/common";
-import { reconcileTruck, truckExpected } from "@/lib/engine";
+import { logAudit, reconcileTruck, truckExpected } from "@/lib/engine";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
@@ -158,9 +158,11 @@ function EnterCountsDialog({ truckId, onClose }: { truckId: string; onClose: () 
   const mismatch = sizes.some((s) => actual[s.id]?.full !== expected[s.id]?.full || actual[s.id]?.empty !== expected[s.id]?.empty);
 
   const save = () => {
-    act((d) => reconcileTruck(d, { date: today, ts: new Date().toISOString(), truckId, driverId, actual, userId: actor }),
-      mismatch ? `Saved with a mismatch against ${L.driver.get(driverId)?.name}` : "Truck returned. Counts match.");
-    onClose();
+    const ok = act((d) => {
+      reconcileTruck(d, { date: today, ts: new Date().toISOString(), truckId, driverId, actual, userId: actor });
+      logAudit(d, actor, "reconciliation", `${L.truck.get(truckId)?.regNo}: counts ${mismatch ? `MISMATCH (driver ${L.driver.get(driverId)?.name})` : "matched"}`);
+    }, mismatch ? `Saved with a mismatch against ${L.driver.get(driverId)?.name}` : "Truck returned. Counts match.");
+    if (ok) onClose();
   };
 
   return (

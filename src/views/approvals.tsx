@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { AckPhoto, EmptyState, MiniMap, PageHeader, StatusBadge } from "@/components/app/common";
-import { approveDelivery, priceFor, rejectDelivery } from "@/lib/engine";
+import { approveDelivery, logAudit, priceFor, rejectDelivery } from "@/lib/engine";
 import { custName, dayKey, distanceKm, fmtDateTime, hoursSince, rupees, timeAgo } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
@@ -109,7 +109,7 @@ export function ApprovalCard({ d, readOnly = false }: { d: Delivery; readOnly?: 
           {d.status !== "pending" && d.reviewedBy && <p className="text-xs text-muted-foreground">Reviewed by {L.user.get(d.reviewedBy)?.name} on {fmtDateTime(d.reviewedAt!)}</p>}
           {!readOnly && d.status === "pending" && (
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button variant="success" size="lg" onClick={() => act((db2) => approveDelivery(db2, d.id, actor, new Date().toISOString()), `Approved ${d.no}: invoice created and balances updated`)}><Check /> Approve</Button>
+              <Button variant="success" size="lg" onClick={() => act((db2) => { approveDelivery(db2, d.id, actor, new Date().toISOString()); logAudit(db2, actor, "delivery_approved", `${d.no} for ${custName(c)}`); }, `Approved ${d.no}: invoice created and balances updated`)}><Check /> Approve</Button>
               <Button variant="outline" size="lg" className="text-destructive" onClick={() => setRejectOpen(true)}><X /> Reject</Button>
             </div>
           )}
@@ -120,7 +120,7 @@ export function ApprovalCard({ d, readOnly = false }: { d: Delivery; readOnly?: 
           {overdue && <p className="text-xs font-medium text-warning-foreground">Waiting longer than {db.settings.pendingApprovalHours} hours.</p>}
         </div>
       </CardContent>
-      <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} onConfirm={(reason) => act((db2) => rejectDelivery(db2, d.id, actor, reason, new Date().toISOString()), `Rejected ${d.no}. Stock moved back to the truck.`)} />
+      <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} onConfirm={(reason) => act((db2) => { rejectDelivery(db2, d.id, actor, reason, new Date().toISOString()); logAudit(db2, actor, "delivery_rejected", `${d.no} for ${custName(c)}: ${reason}`); }, `Rejected ${d.no}. Stock moved back to the truck.`)} />
     </Card>
   );
 }
@@ -139,7 +139,7 @@ function RejectDialog({ open, onOpenChange, onConfirm }: { open: boolean; onOpen
         </div>
         <div className="grid gap-2">
           <Label htmlFor="reason">Reason</Label>
-          <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Type or pick a reason" />
+          <Textarea id="reason" maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Type or pick a reason" />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

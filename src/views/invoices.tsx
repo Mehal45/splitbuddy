@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
-import { createPurchase, locQty, WH } from "@/lib/engine";
+import { createPurchase, locQty, logAudit, WH } from "@/lib/engine";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
 import { computeTotals, lineBreakup } from "@/lib/gst";
 import { amountInWords, useActorId, useSizes } from "@/lib/hooks";
@@ -146,7 +146,10 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
 
   const save = () => {
     const clean = (q: SizeQty) => Object.fromEntries(Object.entries(q).filter(([, n]) => n > 0));
-    const ok = act((d) => { createPurchase(d, { date: dayKey(), ts: new Date().toISOString(), plantId, full: clean(full), emptiesBack: clean(empties), defectiveBack: clean(defective), userId: actor, source: "app" }); }, "Stock receipt saved. Warehouse stock updated.");
+    const ok = act((d) => {
+      const inv = createPurchase(d, { date: dayKey(), ts: new Date().toISOString(), plantId, full: clean(full), emptiesBack: clean(empties), defectiveBack: clean(defective), userId: actor, source: "app" });
+      logAudit(d, actor, "purchase", `Plant receipt ${inv.no} from ${plant.name}: ${rupees(inv.total)}`);
+    }, "Stock receipt saved. Warehouse stock updated.");
     if (ok) onOpenChange(false);
   };
 

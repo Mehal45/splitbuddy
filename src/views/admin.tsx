@@ -12,10 +12,11 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
 import { EmptyState, PageHeader } from "@/components/app/common";
-import { createPurchase, createSaleInvoice, custLoc, locQty, move, nextId, recordPayment, WH, computeStock } from "@/lib/engine";
+import { createPurchase, createSaleInvoice, custLoc, locQty, logAudit, move, nextId, recordPayment, WH, computeStock } from "@/lib/engine";
 import { custName, dayKey, fmtDateTime, rupees, timeAgo } from "@/lib/format";
 import { useActorId } from "@/lib/hooks";
 import { setUiStyle, useUiStyle, type UiStyle } from "@/lib/ui-style";
+import { settingsErrors } from "@/lib/validate";
 import { useStore } from "@/lib/store";
 import type { CylinderSize, DB, Settings, SyncLogEntry } from "@/lib/types";
 
@@ -66,9 +67,9 @@ export function TallyView() {
   const sync = async () => {
     for (let i = 0; i < STEPS.length; i++) { setStep(i); await new Promise((r) => setTimeout(r, 800)); }
     let n = 0;
-    act((d) => { n = runMockSync(d, actor); });
+    const ok = act((d) => { n = runMockSync(d, actor); logAudit(d, actor, "tally_sync", `Imported ${n} vouchers from Tally (demo)`); });
     setStep(-1);
-    toast.success(`Imported ${n} vouchers from Tally. Stock and balances updated.`);
+    if (ok) toast.success(`Imported ${n} vouchers from Tally. Stock and balances updated.`);
   };
 
   return (
@@ -158,6 +159,7 @@ function LookCard() {
 
 export function SettingsView() {
   const { db, act, resetDemo } = useStore();
+  const actor = useActorId();
   const [s, setS] = React.useState<Settings>(() => structuredClone(db.settings));
   const [confirmReset, setConfirmReset] = React.useState(false);
   React.useEffect(() => {
@@ -165,6 +167,16 @@ export function SettingsView() {
     setS(structuredClone(db.settings));
   }, [db.settings]);
   const dirty = JSON.stringify(s) !== JSON.stringify(db.settings);
+  const errors = settingsErrors(s, db.settings);
+  const save = () => {
+    if (errors.length) return;
+    const changed: string[] = [];
+    if (s.agencyName !== db.settings.agencyName || s.agencyGstin !== db.settings.agencyGstin || s.agencyAddress !== db.settings.agencyAddress || s.agencyTagline !== db.settings.agencyTagline) changed.push("agency details");
+    if ((s.ownerPin ?? "1234") !== (db.settings.ownerPin ?? "1234")) changed.push("owner PIN");
+    if (JSON.stringify(s.sizes) !== JSON.stringify(db.settings.sizes)) changed.push("sizes/prices");
+    if (s.pendingApprovalHours !== db.settings.pendingApprovalHours || s.emptiesTolerance !== db.settings.emptiesTolerance || s.gpsMaxDistanceKm !== db.settings.gpsMaxDistanceKm) changed.push("alert thresholds");
+    act((d) => { d.settings = s; logAudit(d, actor, "settings_changed", `Changed ${changed.join(", ") || "settings"}`); }, "Settings saved");
+  };
   const setSize = (i: number, patch: Partial<CylinderSize>) => setS({ ...s, sizes: s.sizes.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
   const numIn = (v: number | null, on: (n: number | null) => void, allowNull = false) => (
     <Input inputMode="decimal" className="h-8 w-24 text-right" value={v ?? ""} placeholder={allowNull ? "–" : "0"} onChange={(e) => { const t = e.target.value.replace(/[^\d.]/g, ""); on(t === "" ? (allowNull ? null : 0) : Number(t)); }} />
@@ -172,7 +184,13 @@ export function SettingsView() {
 
   return (
     <>
-      <PageHeader title="Settings" description="Agency details, cylinder sizes and prices, alert thresholds." actions={<Button onClick={() => act((d) => { d.settings = s; }, "Settings saved")} disabled={!dirty}><Save /> Save changes</Button>} />
+      <PageHeader title="Settings" description="Agency details, cylinder sizes and prices, alert thresholds." actions={<Button onClick={save} disabled={!dirty || errors.length > 0}><Save /> Save changes</Button>} />
+      {dirty && errors.length > 0 && (
+        <div role="alert" className="mb-5 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          <p className="font-medium">Fix these before saving:</p>
+          <ul className="mt-1 list-disc pl-5">{errors.map((e) => <li key={e}>{e}</li>)}</ul>
+        </div>
+      )}
       <div className="grid gap-6">
         <Card>
           <CardHeader><CardTitle>Agency</CardTitle></CardHeader>
@@ -181,7 +199,7 @@ export function SettingsView() {
             <div className="grid gap-1.5"><Label>Tagline</Label><Input value={s.agencyTagline} onChange={(e) => setS({ ...s, agencyTagline: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label>GSTIN</Label><Input className="font-mono" value={s.agencyGstin} onChange={(e) => setS({ ...s, agencyGstin: e.target.value.toUpperCase() })} /></div>
             <div className="grid gap-1.5"><Label>Address</Label><Input value={s.agencyAddress} onChange={(e) => setS({ ...s, agencyAddress: e.target.value })} /></div>
-            <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" type="password" autoComplete="new-password" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
           </CardContent>
         </Card>
 
@@ -234,7 +252,7 @@ export function SettingsView() {
       <Dialog open={confirmReset} onOpenChange={setConfirmReset}>
         <DialogContent>
           <DialogHeader><DialogTitle>Reset demo data?</DialogTitle><DialogDescription>All deliveries, approvals, receipts and settings you changed will be replaced with fresh sample data.</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setConfirmReset(false)}>Cancel</Button><Button variant="destructive" onClick={() => { resetDemo(); setConfirmReset(false); }}>Reset</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setConfirmReset(false)}>Cancel</Button><Button variant="destructive" onClick={() => { resetDemo(actor); setConfirmReset(false); }}>Reset</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </>

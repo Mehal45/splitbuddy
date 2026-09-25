@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { toast } from "sonner";
 import { Camera, CheckCircle2, ChevronRight, ImageIcon, IndianRupee, Loader2, MapPin, PackagePlus, Search, Truck, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AckPhoto, ackPlaceholder, EmptyState, StatusBadge, Stepper, qtySummary } from "@/components/app/common";
-import { locQty, priceFor, submitDelivery, truckLoc } from "@/lib/engine";
+import { locQty, logAudit, priceFor, submitDelivery, truckLoc } from "@/lib/engine";
 import { custName, dayKey, distanceKm, fmtDate, fmtTime, rupees } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
@@ -197,20 +198,27 @@ export function NewDeliveryView() {
   const totalEmpty = Object.values(empty).reduce((a, b) => a + b, 0);
   const short = sizes.filter((s) => (full[s.id] ?? 0) > locQty(stock, truckLoc(truckId), s.id, "full"));
   const km = customer && gps ? distanceKm(customer, gps) : 0;
-  const canSubmit = customer && (totalFull > 0 || totalEmpty > 0) && photo && gps && short.length === 0;
+  const amt = Number(amount) || 0;
+  const maxCollect = value + Math.max(0, customer ? balances[customer.id].outstanding : 0);
+  const payErr = amt > 0 && amt > maxCollect ? `That's more than this bill plus the customer's dues (${rupees(maxCollect)}). Check the amount.` : null;
+  const canSubmit = customer && (totalFull > 0 || totalEmpty > 0) && photo && gps && short.length === 0 && !payErr;
 
   const onFile = async (f?: File) => {
     if (!f) return;
+    if (!f.type.startsWith("image/")) { toast.error("That file isn't a photo. Choose a JPG or PNG picture."); return; }
+    if (f.size > 25 * 1024 * 1024) { toast.error("That photo is too large (over 25 MB)."); return; }
     setBusyPhoto(true);
-    try { setPhoto(await compressImage(f)); } finally { setBusyPhoto(false); }
+    try { setPhoto(await compressImage(f)); }
+    catch { toast.error("Couldn't read that photo. Try taking it again."); }
+    finally { setBusyPhoto(false); }
   };
 
   const submit = () => {
     if (!customer || !gps || !photo) return;
     const clean = (q: SizeQty) => Object.fromEntries(Object.entries(q).filter(([, n]) => n > 0));
-    const amt = Math.max(0, Math.round(Number(amount) || 0));
     const ok = act((d) => {
-      submitDelivery(d, { ts: new Date().toISOString(), truckId, driverId: driver.id, customerId: customer.id, full: clean(full), empty: clean(empty), payment: amt > 0 ? { amount: amt, mode } : null, photo, gps, userId: actor });
+      const del = submitDelivery(d, { ts: new Date().toISOString(), truckId, driverId: driver.id, customerId: customer.id, full: clean(full), empty: clean(empty), payment: amt > 0 ? { amount: amt, mode } : null, photo, gps, userId: actor });
+      logAudit(d, actor, "delivery_submitted", `${del.no} to ${custName(customer)}${amt > 0 ? `, collected ${rupees(amt)} ${mode.toUpperCase()}` : ""}${gps.mocked ? " (mock GPS)" : ""}`);
     }, "Delivery saved. Waiting for warehouse approval.");
     if (ok) navigate("/");
   };
@@ -260,8 +268,9 @@ export function NewDeliveryView() {
         <p className="text-sm text-muted-foreground">Bill value {rupees(value)} · {customer.paymentMode === "cod" ? "Cash on delivery customer" : "Credit customer"}</p>
         <div className="relative">
           <IndianRupee className="absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" />
-          <Input inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} placeholder="0" className="h-14 pl-10 text-xl font-semibold" aria-label="Amount collected" />
+          <Input inputMode="numeric" maxLength={8} value={amount} aria-invalid={!!payErr} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, "").slice(0, 8))} placeholder="0" className="h-14 pl-10 text-xl font-semibold" aria-label="Amount collected" />
         </div>
+        {payErr && <p role="alert" className="text-sm text-destructive">{payErr}</p>}
         <div className="grid grid-cols-3 gap-2">
           <Button type="button" size="xl" variant="outline" onClick={() => setAmount(String(value))} disabled={!value}>Full amount</Button>
           <Button type="button" size="xl" variant={mode === "cash" ? "default" : "outline"} onClick={() => setMode("cash")}>Cash</Button>
@@ -276,14 +285,14 @@ export function NewDeliveryView() {
         {photo ? (
           <div className="relative">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photo} alt="Acknowledgement preview" className="max-h-80 w-full rounded-lg border object-contain" />
+            <img src={photo.startsWith("ph:") ? ackPlaceholder(Number(photo.slice(3)), { no: "DL/NEW", ts: new Date().toISOString(), full, empty }, custName(customer)) : photo} alt="Acknowledgement preview" className="max-h-80 w-full rounded-lg border object-contain" />
             <Button variant="secondary" size="sm" className="absolute top-2 right-2" onClick={() => setPhoto(null)}>Retake</Button>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" size="xl" className="h-20 flex-col gap-1" onClick={() => camRef.current?.click()} disabled={busyPhoto}>{busyPhoto ? <Loader2 className="animate-spin" /> : <Camera className="size-6" />} Take photo</Button>
             <Button type="button" size="xl" variant="outline" className="h-20 flex-col gap-1" onClick={() => fileRef.current?.click()} disabled={busyPhoto}><ImageIcon className="size-6" /> From gallery</Button>
-            <Button type="button" variant="link" className="col-span-2" onClick={() => setPhoto(ackPlaceholder(Math.ceil(Math.random() * 6), { no: "DL/NEW", ts: new Date().toISOString(), full, empty }, custName(customer)))}>No camera? Use a sample photo for the demo</Button>
+            <Button type="button" variant="link" className="col-span-2" onClick={() => setPhoto(`ph:${Math.ceil(Math.random() * 6)}`)}>No camera? Use a sample photo for the demo</Button>
           </div>
         )}
       </section>

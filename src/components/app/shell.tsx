@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
-  Receipt, RefreshCw, Scale, Settings, Sun, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2,
+  Receipt, RefreshCw, Scale, Settings, Sun, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/movements", label: "Movement log", icon: History },
     { href: "/reports", label: "Reports", icon: FileBarChart },
     { href: "/tally", label: "Tally sync", icon: RefreshCw },
+    { href: "/activity", label: "Activity log", icon: ShieldCheck },
     { href: "/settings", label: "Settings", icon: Settings },
   ],
   warehouse: [

@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isSafePhoto } from "@/lib/engine";
 import { dayKey, distanceKm, fmtDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Customer, Delivery, DeliveryStatus, SizeQty } from "@/lib/types";
@@ -113,8 +114,10 @@ ${rows}
 }
 
 export function ackSrc(d: Delivery, customer?: Customer) {
-  if (d.photo.startsWith("ph:")) return ackPlaceholder(Number(d.photo.slice(3)) || 1, d, customer ? customer.businessName || customer.name : "Customer");
-  return d.photo;
+  const name = customer ? customer.businessName || customer.name : "Customer";
+  if (d.photo.startsWith("ph:")) return ackPlaceholder(Number(d.photo.slice(3)) || 1, d, name);
+  // Only ever render real image data; anything else falls back to the placeholder
+  return isSafePhoto(d.photo) ? d.photo : ackPlaceholder(1, d, name);
 }
 
 export function AckPhoto({ delivery, customer, className }: { delivery: Delivery; customer?: Customer; className?: string }) {
@@ -204,9 +207,12 @@ export function useDateRange(days = 30) {
 
 export function downloadCSV(filename: string, rows: (string | number | null | undefined)[][]) {
   const csv = rows.map((r) => r.map((v) => {
-    const s = v == null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }).join(",")).join("\n");
+    let s = v == null ? "" : String(v);
+    // Text starting with = + - @ (or tab/CR) would run as a formula in Excel.
+    // Prefix it with ' so it stays plain text. Real numbers are left alone.
+    if (typeof v === "string" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(",")).join("\r\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);

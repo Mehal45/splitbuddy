@@ -4,7 +4,7 @@
 import { computeTotals } from "./gst";
 import { dayKey } from "./format";
 import type {
-  CylState, Customer, DB, Delivery, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
+  AuditAction, CylState, Customer, DB, Delivery, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
 } from "./types";
 
 export const WH = "WH";
@@ -12,6 +12,16 @@ export const PLANT = "PLANT";
 export const LOSS = "LOSS";
 export const truckLoc = (id: string) => `TRUCK:${id}`;
 export const custLoc = (id: string) => `CUST:${id}`;
+
+const AUDIT_LIMIT = 3000;
+
+// Append-only record of who did what. In the real system this lives on the
+// server and cannot be edited by any user.
+export function logAudit(db: DB, userId: string, action: AuditAction, detail: string) {
+  const log = (db.audit ??= []);
+  log.push({ id: nextId(db, "au"), ts: new Date().toISOString(), userId, action, detail: detail.slice(0, 300) });
+  if (log.length > AUDIT_LIMIT) log.splice(0, log.length - AUDIT_LIMIT);
+}
 
 export function nextId(db: DB, prefix: string) {
   db.counters[prefix] = (db.counters[prefix] ?? 0) + 1;
@@ -69,9 +79,36 @@ export function locQty(stock: StockMap, loc: string, size: string, state: CylSta
   return stock[loc]?.[size]?.[state] ?? 0;
 }
 
+// ---------- guards ----------
+// Every write checks its inputs here too, not only in the form. A bad value
+// throws, the store shows the message and nothing is saved.
+
+export class RuleError extends Error {}
+const fail = (msg: string): never => { throw new RuleError(msg); };
+
+function checkQty(q: SizeQty, what: string, db: DB) {
+  for (const [size, n] of Object.entries(q)) {
+    if (!sizeById(db, size)) fail(`Unknown cylinder size "${size}".`);
+    if (!Number.isInteger(n) || n < 0 || n > 9999) fail(`${what}: quantity for ${size} kg must be a whole number from 0 to 9,999.`);
+  }
+}
+function checkExists<T extends { id: string }>(list: T[], id: string, what: string) {
+  if (!list.some((x) => x.id === id)) fail(`${what} not found.`);
+}
+export function isSafePhoto(src: string) {
+  return /^ph:\d{1,2}$/.test(src) || /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(src);
+}
+
 // ---------- load sheet ----------
 
 export function createLoadSheet(db: DB, a: { date: string; ts: string; truckId: string; driverId: string; lines: SizeQty; userId: string }) {
+  checkExists(db.trucks, a.truckId, "Truck");
+  checkExists(db.drivers, a.driverId, "Driver");
+  checkQty(a.lines, "Load sheet", db);
+  const stock = computeStock(db.movements);
+  for (const [size, q] of Object.entries(a.lines)) {
+    if (q > locQty(stock, WH, size, "full")) fail(`Not enough full ${size} kg cylinders at the warehouse.`);
+  }
   const id = nextId(db, "ls");
   const no = nextNo(db, "LS", a.date);
   db.loadSheets.push({ id, no, date: a.date, ts: a.ts, truckId: a.truckId, driverId: a.driverId, lines: a.lines, createdBy: a.userId });
@@ -87,6 +124,22 @@ export function submitDelivery(db: DB, a: {
   ts: string; truckId: string; driverId: string; customerId: string; full: SizeQty; empty: SizeQty;
   payment: Delivery["payment"]; photo: string; gps: GeoPoint; userId: string;
 }) {
+  checkExists(db.customers, a.customerId, "Customer");
+  checkExists(db.trucks, a.truckId, "Truck");
+  checkExists(db.drivers, a.driverId, "Driver");
+  checkQty(a.full, "Full cylinders", db);
+  checkQty(a.empty, "Empty cylinders", db);
+  if (!Object.values(a.full).some((n) => n > 0) && !Object.values(a.empty).some((n) => n > 0)) fail("Enter at least one cylinder.");
+  const onTruck = computeStock(db.movements);
+  for (const [size, q] of Object.entries(a.full)) {
+    if (q > locQty(onTruck, truckLoc(a.truckId), size, "full")) fail(`Not enough full ${size} kg cylinders on the truck.`);
+  }
+  if (!isSafePhoto(a.photo)) fail("The acknowledgement photo is missing or not an image.");
+  if (!Number.isFinite(a.gps.lat) || !Number.isFinite(a.gps.lng) || Math.abs(a.gps.lat) > 90 || Math.abs(a.gps.lng) > 180) fail("Location is not valid.");
+  if (a.payment) {
+    if (!Number.isInteger(a.payment.amount) || a.payment.amount <= 0 || a.payment.amount > 1_00_00_000) fail("Payment amount is not valid.");
+    if (a.payment.mode !== "cash" && a.payment.mode !== "upi") fail("Payment mode must be cash or UPI.");
+  }
   const id = nextId(db, "d");
   const date = dayKey(a.ts);
   const d: Delivery = {
@@ -159,6 +212,12 @@ export function truckExpected(db: DB, stock: StockMap, truckId: string) {
 }
 
 export function reconcileTruck(db: DB, a: { date: string; ts: string; truckId: string; driverId: string; actual: Record<string, { full: number; empty: number }>; userId: string }) {
+  checkExists(db.trucks, a.truckId, "Truck");
+  for (const v of Object.values(a.actual)) {
+    for (const n of [v.full, v.empty]) {
+      if (!Number.isInteger(n) || n < 0 || n > 9999) fail("Returned counts must be whole numbers from 0 to 9,999.");
+    }
+  }
   const stock = computeStock(db.movements);
   const expected = truckExpected(db, stock, a.truckId);
   let mismatch = false;
@@ -183,6 +242,8 @@ export function createPurchase(db: DB, a: {
   date: string; ts: string; plantId: string; full: SizeQty; emptiesBack: SizeQty; defectiveBack?: SizeQty; testingBack?: SizeQty;
   userId: string; source: Invoice["source"];
 }) {
+  checkExists(db.plants, a.plantId, "Plant");
+  for (const [q, what] of [[a.full, "Received"], [a.emptiesBack, "Empties sent"], [a.defectiveBack ?? {}, "Defective sent"], [a.testingBack ?? {}, "Testing sent"]] as const) checkQty(q, what, db);
   const plant = db.plants.find((p) => p.id === a.plantId)!;
   const interstate = plant.state !== db.settings.homeState;
   const lines: InvoiceLine[] = [];
@@ -212,9 +273,15 @@ export function createPurchase(db: DB, a: {
 }
 
 export function recordPayment(db: DB, a: { customerId: string; date: string; ts: string; amount: number; mode: "cash" | "upi" | "cheque" | "neft"; ref?: string; source: "app" | "tally" | "seed" }) {
-  db.payments.push({ id: nextId(db, "p"), ...a });
+  checkExists(db.customers, a.customerId, "Customer");
+  if (!Number.isInteger(a.amount) || a.amount <= 0 || a.amount > 1_00_00_000) fail("Payment must be a whole amount between ₹1 and ₹1 crore.");
+  if (!["cash", "upi", "cheque", "neft"].includes(a.mode)) fail("Unknown payment mode.");
+  db.payments.push({ id: nextId(db, "p"), ...a, ref: a.ref?.slice(0, 40) });
 }
 
 export function changeState(db: DB, a: { ts: string; size: string; from: CylState; to: CylState; qty: number; userId: string; note?: string }) {
+  checkQty({ [a.size]: a.qty }, "State change", db);
+  if (a.from === a.to) fail("Pick two different states.");
+  if (a.qty > locQty(computeStock(db.movements), WH, a.size, a.from)) fail("Not that many cylinders in that state at the warehouse.");
   move(db, { ts: a.ts, userId: a.userId, from: WH, to: WH, size: a.size, state: a.from, toState: a.to, qty: a.qty, refType: "adjust", note: a.note });
 }

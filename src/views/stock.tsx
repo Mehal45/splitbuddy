@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRange, downloadCSV, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
-import { changeState, locQty, truckLoc, WH } from "@/lib/engine";
+import { changeState, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { custName, dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { locLabel, useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
@@ -146,10 +146,16 @@ function ChangeStateDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           <div><Label>Quantity</Label><p className="text-xs text-muted-foreground">{avail} available at warehouse</p></div>
           <Stepper value={qty} min={1} max={Math.max(1, avail)} onChange={setQty} label="Quantity" />
         </div>
-        <div className="grid gap-2"><Label htmlFor="note">Note</Label><Input id="note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Underweight on scale" /></div>
+        <div className="grid gap-2"><Label htmlFor="note">Note</Label><Input id="note" maxLength={120} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Underweight on scale" /></div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={qty > avail || from === to} onClick={() => { act((d) => changeState(d, { ts: new Date().toISOString(), size, from, to, qty, userId: actor, note: note || undefined }), `Moved ${qty} × ${size} kg from ${STATE_LABEL[from]} to ${STATE_LABEL[to]}`); onOpenChange(false); setNote(""); setQty(1); }}>Save</Button>
+          <Button disabled={qty > avail || from === to} onClick={() => {
+            const ok = act((d) => {
+              changeState(d, { ts: new Date().toISOString(), size, from, to, qty, userId: actor, note: note.trim().slice(0, 120) || undefined });
+              logAudit(d, actor, "stock_state_change", `${qty} × ${size} kg: ${STATE_LABEL[from]} → ${STATE_LABEL[to]}${note.trim() ? ` (${note.trim().slice(0, 120)})` : ""}`);
+            }, `Moved ${qty} × ${size} kg from ${STATE_LABEL[from]} to ${STATE_LABEL[to]}`);
+            if (ok) { onOpenChange(false); setNote(""); setQty(1); }
+          }}>Save</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

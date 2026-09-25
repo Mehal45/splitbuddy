@@ -23,6 +23,10 @@ OTP is simulated: no SMS is sent and any 4 digits work. Each login page lists a 
 
 The app ships with two looks. The **new style** (default) has a black top bar, soft grey cards, lime and coral accents and the Urbanist font. The **classic style** is the original blue design. Switch in the sun/moon menu (top right) or in **Settings → Look**. The choice is saved per device. In code, the version before the restyle is commit `3cc6d12` (`git checkout 3cc6d12`).
 
+## Security
+
+See [SECURITY.md](SECURITY.md) for what the demo protects, its limits as a browser-only app, and the checklist for the real system.
+
 ## Run locally
 
 Needs Node.js 20 or newer (https://nodejs.org).

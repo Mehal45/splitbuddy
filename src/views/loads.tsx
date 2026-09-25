@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState, PageHeader, Stepper } from "@/components/app/common";
-import { createLoadSheet, locQty, truckLoc, WH } from "@/lib/engine";
+import { createLoadSheet, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { useLookups, useStore } from "@/lib/store";
@@ -126,6 +126,7 @@ function NewLoadSheetDialog({ open, onOpenChange }: { open: boolean; onOpenChang
     const clean = Object.fromEntries(Object.entries(lines).filter(([, q]) => q > 0));
     const ok = act((d) => {
       createLoadSheet(d, { date: dayKey(), ts: new Date().toISOString(), truckId, driverId, lines: clean, userId: actor });
+      logAudit(d, actor, "load_sheet", `Loaded ${total} full cylinders on ${truck?.regNo} for ${d.drivers.find((x) => x.id === driverId)?.name}`);
     }, `Loaded ${total} cylinders on ${truck?.regNo}`);
     if (ok) onOpenChange(false);
   };

@@ -5,10 +5,11 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { computeStock, type StockMap } from "./engine";
+import { REMEMBER_MS, SESSION_MS } from "./auth";
+import { computeStock, logAudit, type StockMap } from "./engine";
 import { buildSeed, DB_VERSION } from "./seed";
 import { computeAlerts, customerBalances, type Alert, type CustomerBalance } from "./selectors";
-import type { DB, Role, User } from "./types";
+import type { AuditAction, DB, Role, User } from "./types";
 
 const DB_KEY = "anmol-gas-demo:db";
 const SESSION_KEY = "anmol-gas-demo:session";
@@ -17,14 +18,23 @@ export interface Session {
   userId: string; // who logged in
   viewAsUserId?: string; // owner previewing another role
   remember?: boolean; // "Keep me signed in": localStorage, otherwise only this browser session
+  expiresAt?: number; // epoch ms; expired sessions are ignored
+}
+
+function validSession(v: unknown): Session | null {
+  if (!v || typeof v !== "object") return null;
+  const s = v as Session;
+  if (typeof s.userId !== "string") return null;
+  if (typeof s.expiresAt !== "number" || s.expiresAt < Date.now()) return null;
+  return s;
 }
 
 function readSession(): Session | null {
-  const saved = readJSON<Session>(SESSION_KEY);
+  const saved = validSession(readJSON<Session>(SESSION_KEY));
   if (saved) return saved;
   try {
     const raw = sessionStorage.getItem(SESSION_KEY);
-    return raw ? (JSON.parse(raw) as Session) : null;
+    return validSession(raw ? JSON.parse(raw) : null);
   } catch {
     return null;
   }
@@ -46,10 +56,11 @@ interface StoreValue {
   alerts: Alert[];
   now: number;
   act: (fn: (draft: DB) => void, success?: string) => boolean;
-  resetDemo: () => void;
+  resetDemo: (actorId: string) => void;
   session: Session | null;
   login: (userId: string, remember?: boolean) => void;
   logout: () => void;
+  logEvent: (userId: string, action: AuditAction, detail: string) => void;
   viewAs: (userId: string | undefined) => void;
   realUser: User | null;
   user: User | null; // effective user (after "view as")
@@ -81,12 +92,23 @@ function writeJSON(key: string, value: unknown) {
   }
 }
 
-function loadDB(): DB {
-  const saved = readJSON<DB>(DB_KEY);
-  if (saved && saved.version === DB_VERSION) return saved;
+// Stored data can be edited, damaged or from an older version. Anything that
+// doesn't look like our database is replaced instead of crashing the app.
+function looksValid(d: unknown): d is DB {
+  if (!d || typeof d !== "object") return false;
+  const x = d as DB;
+  const arrays = [x.users, x.drivers, x.trucks, x.customers, x.plants, x.movements, x.loadSheets, x.deliveries, x.invoices, x.payments, x.reconciliations, x.syncLog];
+  return x.version === DB_VERSION && arrays.every(Array.isArray)
+    && !!x.settings && Array.isArray(x.settings.sizes) && x.settings.sizes.length > 0
+    && typeof x.counters === "object" && x.users.some((u) => u.role === "owner");
+}
+
+function loadDB(): { db: DB; recovered: boolean } {
+  const saved = readJSON<unknown>(DB_KEY);
+  if (looksValid(saved)) return { db: saved, recovered: false };
   const fresh = buildSeed();
   writeJSON(DB_KEY, fresh);
-  return fresh;
+  return { db: fresh, recovered: saved !== null && (saved as DB)?.version === DB_VERSION };
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -95,11 +117,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
-    const loaded = loadDB();
+    const { db: loaded, recovered } = loadDB();
     currentDb = loaded;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from localStorage once on mount
     setDb(loaded);
-    setSession(readSession());
+    const sess = readSession();
+    setSession(sess && loaded.users.some((u) => u.id === sess.userId) ? sess : null);
+    if (recovered) toast.warning("Saved demo data was damaged, so a fresh copy was loaded.");
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
@@ -125,8 +149,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
-  const resetDemo = React.useCallback(() => {
+  const resetDemo = React.useCallback((actorId: string) => {
     const fresh = buildSeed();
+    logAudit(fresh, actorId, "demo_reset", "Demo data reset to a fresh 60-day history");
     currentDb = fresh;
     setDb(fresh);
     setNow(Date.now());
@@ -139,6 +164,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     writeSession(s);
   }, []);
 
+  const logEvent = React.useCallback((userId: string, action: AuditAction, detail: string) => {
+    act((d) => logAudit(d, userId, action, detail));
+  }, [act]);
+
   const value = React.useMemo<StoreValue | null>(() => {
     if (!db) return null;
     const stock = computeStock(db.movements);
@@ -149,12 +178,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const user = viewed ?? realUser;
     return {
       db, stock, balances, alerts, now, act, resetDemo, session,
-      login: (userId, remember = true) => saveSession({ userId, remember }),
-      logout: () => saveSession(null),
-      viewAs: (userId) => session && saveSession({ ...session, viewAsUserId: userId }),
+      login: (userId, remember = true) => {
+        logEvent(userId, "login", remember ? "Signed in (kept signed in)" : "Signed in (this tab only)");
+        saveSession({ userId, remember, expiresAt: Date.now() + (remember ? REMEMBER_MS : SESSION_MS) });
+      },
+      logout: () => {
+        if (session) logEvent(session.userId, "logout", "Signed out");
+        saveSession(null);
+      },
+      logEvent,
+      viewAs: (userId) => {
+        if (!session || realUser?.role !== "owner") return;
+        if (userId) logEvent(session.userId, "view_as", `Viewed the app as ${db.users.find((u) => u.id === userId)?.name ?? userId}`);
+        saveSession({ ...session, viewAsUserId: userId });
+      },
       realUser, user, role: user?.role ?? null,
     };
-  }, [db, session, now, act, resetDemo, saveSession]);
+  }, [db, session, now, act, resetDemo, saveSession, logEvent]);
 
   if (!value) {
     return (

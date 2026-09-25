@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
-import { nextId, recordPayment } from "@/lib/engine";
+import { logAudit, nextId, recordPayment } from "@/lib/engine";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
-import { useSizes } from "@/lib/hooks";
+import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
 import { useLookups, useStore } from "@/lib/store";
 import type { Customer } from "@/lib/types";
+import { customerErrors, paymentError } from "@/lib/validate";
 import { cn } from "@/lib/utils";
 import { CustomerInvoicesTable } from "./invoices";
 
@@ -272,14 +273,19 @@ export function CustomerDetail({ id, portal = false, tab }: { id: string; portal
 
 function PaymentDialog({ customer, open, onOpenChange }: { customer: Customer; open: boolean; onOpenChange: (o: boolean) => void }) {
   const { act, balances } = useStore();
+  const actor = useActorId();
   const [amount, setAmount] = React.useState("");
   const [mode, setMode] = React.useState<"cash" | "upi" | "cheque" | "neft">("neft");
   const [ref, setRef] = React.useState("");
   const due = balances[customer.id].outstanding;
+  const amt = Number(amount);
+  const err = amount ? paymentError(amt) : null;
   const save = () => {
-    const amt = Math.round(Number(amount));
-    if (!amt) return;
-    act((d) => recordPayment(d, { customerId: customer.id, date: dayKey(), ts: new Date().toISOString(), amount: amt, mode, ref: ref || undefined, source: "app" }), `Payment of ${rupees(amt)} recorded`);
+    if (paymentError(amt)) return;
+    act((d) => {
+      recordPayment(d, { customerId: customer.id, date: dayKey(), ts: new Date().toISOString(), amount: amt, mode, ref: ref.trim() || undefined, source: "app" });
+      logAudit(d, actor, "payment", `${rupees(amt)} ${mode.toUpperCase()} from ${custName(customer)}${ref.trim() ? ` (ref ${ref.trim()})` : ""}`);
+    }, `Payment of ${rupees(amt)} recorded`);
     onOpenChange(false); setAmount(""); setRef("");
   };
   return (
@@ -287,13 +293,16 @@ function PaymentDialog({ customer, open, onOpenChange }: { customer: Customer; o
       <DialogContent>
         <DialogHeader><DialogTitle>Record payment</DialogTitle><DialogDescription>{custName(customer)} · outstanding {rupees(due)}</DialogDescription></DialogHeader>
         <div className="grid gap-3">
-          <div className="grid gap-2"><Label htmlFor="amt">Amount (₹)</Label><div className="flex gap-2"><Input id="amt" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} /><Button variant="outline" onClick={() => setAmount(String(Math.max(0, Math.round(due))))}>Full due</Button></div></div>
+          <div className="grid gap-2"><Label htmlFor="amt">Amount (₹)</Label><div className="flex gap-2"><Input id="amt" inputMode="numeric" maxLength={9} value={amount} aria-invalid={!!err} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, "").slice(0, 9))} /><Button variant="outline" onClick={() => setAmount(String(Math.max(0, Math.round(due))))}>Full due</Button></div>
+            {err && <p role="alert" className="text-sm text-destructive">{err}</p>}
+            {!err && amt > Math.max(0, due) + 1 && <p className="text-sm text-warning-foreground">This is more than the outstanding amount. The extra will show as an advance.</p>}
+          </div>
           <div className="grid gap-2"><Label>Mode</Label>
             <div className="grid grid-cols-4 gap-2">{(["cash", "upi", "cheque", "neft"] as const).map((m) => <Button key={m} variant={mode === m ? "default" : "outline"} onClick={() => setMode(m)}>{m.toUpperCase()}</Button>)}</div>
           </div>
-          <div className="grid gap-2"><Label htmlFor="ref">Reference (UTR / cheque no.)</Label><Input id="ref" value={ref} onChange={(e) => setRef(e.target.value)} /></div>
+          <div className="grid gap-2"><Label htmlFor="ref">Reference (UTR / cheque no.)</Label><Input id="ref" maxLength={40} value={ref} onChange={(e) => setRef(e.target.value)} /></div>
         </div>
-        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={save} disabled={!Number(amount)}>Save payment</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button onClick={save} disabled={!!paymentError(amt)}>Save payment</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -302,23 +311,34 @@ function PaymentDialog({ customer, open, onOpenChange }: { customer: Customer; o
 function CustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
   const { db, act } = useStore();
   const sizes = useSizes();
+  const actor = useActorId();
+  const [touched, setTouched] = React.useState(false);
   const [f, setF] = React.useState<Customer>(() => customer ? structuredClone(customer) : {
     id: "", code: "", name: "", businessName: "", type: "commercial", category: "Restaurant", gstin: "", phone: "", address: "", area: "Jayanagar", state: "Karnataka",
     lat: 12.925, lng: 77.5938, creditLimit: 50000, depositCylinders: { "19": 4 }, depositAmount: 14000, paymentMode: "credit", openingOutstanding: 0, openingEmpties: {},
   });
   const set = <K extends keyof Customer>(k: K, v: Customer[K]) => setF({ ...f, [k]: v });
   const areas = [...new Set(db.customers.map((c) => c.area))].sort();
+  const clean: Customer = { ...f, name: f.name.trim(), businessName: f.businessName.trim(), address: f.address.trim(), gstin: f.gstin.trim().toUpperCase(), phone: f.phone.trim() };
+  const errors = customerErrors(clean, db.users);
   const save = () => {
+    if (errors.length) return;
+    const f = clean;
     act((d) => {
       if (customer) {
         const i = d.customers.findIndex((c) => c.id === customer.id);
         d.customers[i] = { ...f };
+        // keep the customer's login in step with their details
+        const u = d.users.find((x) => x.customerId === customer.id);
+        if (u) { u.name = f.name; u.phone = f.phone; }
+        logAudit(d, actor, "customer_edited", `Edited ${custName(f)}${customer.phone !== f.phone ? " (phone changed)" : ""}${customer.creditLimit !== f.creditLimit ? ` (credit limit ${rupees(customer.creditLimit)} → ${rupees(f.creditLimit)})` : ""}`);
       } else {
         const id = nextId(d, "cnew");
         const ref = d.customers.find((c) => c.area === f.area);
         const c: Customer = { ...f, id, code: `AGA-C${String(d.customers.length + 1).padStart(3, "0")}`, lat: ref?.lat ?? f.lat, lng: ref?.lng ?? f.lng, openingEmpties: {} };
         d.customers.push(c);
         d.users.push({ id: `u-${id}`, name: c.name, role: "customer", phone: c.phone, customerId: id });
+        logAudit(d, actor, "customer_added", `Added ${custName(c)} (${c.area})`);
       }
     }, customer ? "Customer updated" : "Customer added");
     onClose();
@@ -328,18 +348,18 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader><DialogTitle>{customer ? "Edit customer" : "Add customer"}</DialogTitle><DialogDescription>GST rate follows the customer type: domestic 5%, commercial 18%.</DialogDescription></DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="grid gap-1.5"><Label>Contact name</Label><Input value={f.name} onChange={(e) => set("name", e.target.value)} /></div>
-          <div className="grid gap-1.5"><Label>Business name</Label><Input value={f.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Leave empty for households" /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-name">Contact name</Label><Input id="c-name" maxLength={80} value={f.name} onChange={(e) => set("name", e.target.value)} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-biz">Business name</Label><Input id="c-biz" maxLength={80} value={f.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Leave empty for households" /></div>
           <div className="grid gap-1.5"><Label>Type</Label>
             <Select value={f.type} onValueChange={(v) => set("type", v as Customer["type"])}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="domestic">Domestic (GST 5%)</SelectItem><SelectItem value="commercial">Commercial (GST 18%)</SelectItem></SelectContent></Select>
           </div>
-          <div className="grid gap-1.5"><Label>GSTIN</Label><Input value={f.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase())} className="font-mono" /></div>
-          <div className="grid gap-1.5"><Label>Phone</Label><Input value={f.phone} onChange={(e) => set("phone", e.target.value)} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-gstin">GSTIN</Label><Input id="c-gstin" maxLength={15} value={f.gstin} onChange={(e) => set("gstin", e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ""))} className="font-mono" /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-phone">Phone</Label><Input id="c-phone" inputMode="tel" maxLength={14} value={f.phone} onChange={(e) => set("phone", e.target.value.replace(/[^\d\s+]/g, ""))} /></div>
           <div className="grid gap-1.5"><Label>Area</Label>
             <Select value={f.area} onValueChange={(v) => setF({ ...f, area: v, state: v === "Hosur" ? "Tamil Nadu" : "Karnataka" })}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent>{areas.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select>
           </div>
-          <div className="grid gap-1.5 sm:col-span-2"><Label>Address</Label><Input value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
-          <div className="grid gap-1.5"><Label>Credit limit (₹)</Label><Input inputMode="numeric" value={f.creditLimit} onChange={(e) => set("creditLimit", Number(e.target.value.replace(/\D/g, "")) || 0)} /></div>
+          <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor="c-addr">Address</Label><Input id="c-addr" maxLength={200} value={f.address} onChange={(e) => set("address", e.target.value)} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-limit">Credit limit (₹)</Label><Input id="c-limit" inputMode="numeric" value={f.creditLimit} onChange={(e) => set("creditLimit", Number(e.target.value.replace(/\D/g, "")) || 0)} /></div>
           <div className="grid gap-1.5"><Label>Payment mode</Label>
             <Select value={f.paymentMode} onValueChange={(v) => set("paymentMode", v as Customer["paymentMode"])}><SelectTrigger className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="credit">Credit</SelectItem><SelectItem value="cod">Cash on delivery</SelectItem></SelectContent></Select>
           </div>
@@ -348,9 +368,12 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
               <div key={s.id} className="flex items-center gap-1.5"><span className="text-sm text-muted-foreground">{s.label}</span><Input className="w-16" inputMode="numeric" value={f.depositCylinders[s.id] ?? 0} onChange={(e) => set("depositCylinders", { ...f.depositCylinders, [s.id]: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
             ))}</div>
           </div>
-          <div className="grid gap-1.5"><Label>Deposit amount (₹)</Label><Input inputMode="numeric" value={f.depositAmount} onChange={(e) => set("depositAmount", Number(e.target.value.replace(/\D/g, "")) || 0)} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="c-dep">Deposit amount (₹)</Label><Input id="c-dep" inputMode="numeric" value={f.depositAmount} onChange={(e) => set("depositAmount", Number(e.target.value.replace(/\D/g, "")) || 0)} /></div>
         </div>
-        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} disabled={!f.name.trim() || !f.phone.trim()}>Save</Button></DialogFooter>
+        {touched && errors.length > 0 && (
+          <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"><ul className="list-disc pl-5">{errors.map((e) => <li key={e}>{e}</li>)}</ul></div>
+        )}
+        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => { setTouched(true); save(); }} disabled={touched && errors.length > 0}>Save</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

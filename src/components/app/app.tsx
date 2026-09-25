@@ -2,7 +2,9 @@
 
 import * as React from "react";
 import { ShieldAlert } from "lucide-react";
+import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
+import { ErrorBoundary } from "@/components/app/error-boundary";
 import { AppShell } from "@/components/app/shell";
 import { EmptyState } from "@/components/app/common";
 import { LOGIN_PAGES } from "@/lib/auth";
@@ -34,14 +36,26 @@ function Router() {
     );
     break;
   }
-  return <AppShell path={path}>{content ?? <EmptyState title="Page not found" hint="Use the menu to find what you need." />}</AppShell>;
+  return (
+    <AppShell path={path}>
+      <ErrorBoundary resetKey={path}>{content ?? <EmptyState title="Page not found" hint="Use the menu to find what you need." />}</ErrorBoundary>
+    </AppShell>
+  );
 }
 
 export function App() {
+  React.useEffect(() => {
+    // Background failures (e.g. a photo that can't be read) get a message, not silence
+    const onRejection = () => toast.error("Something didn't finish. Please try again.");
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => window.removeEventListener("unhandledrejection", onRejection);
+  }, []);
   return (
-    <StoreProvider>
-      <Router />
-      <Toaster richColors position="top-center" />
-    </StoreProvider>
+    <ErrorBoundary>
+      <StoreProvider>
+        <Router />
+        <Toaster richColors position="top-center" />
+      </StoreProvider>
+    </ErrorBoundary>
   );
 }

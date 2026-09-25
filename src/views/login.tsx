@@ -10,15 +10,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Logo, ThemeToggle } from "@/components/app/shell";
+import { clearFailures, DEFAULT_OWNER_PIN, formatWait, isValidMobile, lockRemaining, normalizePhone, recordFailure } from "@/lib/auth";
 import { custName } from "@/lib/format";
 import { navigate } from "@/lib/router";
 import { useStore } from "@/lib/store";
 import type { Role, User as AppUser } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const DEMO_PIN = "1234";
 
 const digits = (s: string) => s.replace(/\D/g, "");
+
+// Re-renders every second while a lock is active so the countdown stays current.
+function useLock(scope: string) {
+  const [left, setLeft] = React.useState(0);
+  React.useEffect(() => {
+    const tick = () => setLeft(lockRemaining(scope));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [scope]);
+  return { left, refresh: () => setLeft(lockRemaining(scope)) };
+}
 
 function Frame({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   const { db } = useStore();
@@ -86,19 +98,26 @@ function CodeBoxes({ length, value, onChange, secret = false, label }: { length:
 // ---------- owner: PIN, then log in as anyone ----------
 
 export function OwnerLogin() {
-  const { db, login } = useStore();
+  const { db, login, logEvent } = useStore();
+  const lock = useLock("owner-pin");
   const [pin, setPin] = React.useState("");
   const [keep, setKeep] = React.useState(true);
   const [unlocked, setUnlocked] = React.useState(false);
   const [error, setError] = React.useState("");
   const [driverId, setDriverId] = React.useState("u-dr1");
   const [customerId, setCustomerId] = React.useState("u-c1");
-  const expected = db.settings.ownerPin ?? DEMO_PIN;
+  const expected = db.settings.ownerPin || DEFAULT_OWNER_PIN;
+  const isDefaultPin = expected === DEFAULT_OWNER_PIN;
 
   const unlock = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (pin === expected) { setUnlocked(true); setError(""); }
-    else { setError("That PIN is not correct. Try again."); setPin(""); }
+    if (lockRemaining("owner-pin") > 0) return;
+    if (pin === expected) { clearFailures("owner-pin"); setUnlocked(true); setError(""); return; }
+    const left = recordFailure("owner-pin");
+    logEvent("anonymous", "login_failed", "Wrong owner PIN");
+    lock.refresh();
+    setPin("");
+    setError(left === 0 ? "Too many wrong PINs. The form is locked for a while." : `That PIN is not correct. ${left} ${left === 1 ? "try" : "tries"} left before a lock.`);
   };
   const go = (id: string) => { login(id, keep); navigate("/"); };
 
@@ -113,10 +132,12 @@ export function OwnerLogin() {
                 <div><h2 className="text-lg font-semibold leading-tight">Owner login</h2><p className="text-sm text-muted-foreground">Enter your 4-digit PIN</p></div>
               </div>
               <CodeBoxes length={4} value={pin} onChange={(v) => { setPin(v); setError(""); }} secret label="PIN" />
-              {error && <p className="text-center text-sm text-destructive">{error}</p>}
+              {lock.left > 0
+                ? <p role="alert" className="text-center text-sm text-destructive">Too many wrong PINs. Try again in {formatWait(lock.left)}.</p>
+                : error && <p role="alert" className="text-center text-sm text-destructive">{error}</p>}
               <KeepSignedIn checked={keep} onChange={setKeep} />
-              <Button type="submit" size="lg" className="w-full" disabled={pin.length !== 4}>Unlock <ArrowRight /></Button>
-              <p className="rounded-md bg-muted px-3 py-2 text-center text-sm text-muted-foreground">Demo PIN: <b className="text-foreground tabular-nums">{expected}</b></p>
+              <Button type="submit" size="lg" className="w-full" disabled={pin.length !== 4 || lock.left > 0}>Unlock <ArrowRight /></Button>
+              {isDefaultPin && <p className="rounded-md bg-muted px-3 py-2 text-center text-sm text-muted-foreground">Demo PIN: <b className="text-foreground tabular-nums">{DEFAULT_OWNER_PIN}</b> · change it in Settings</p>}
             </form>
           </CardContent>
         </Card>
@@ -214,8 +235,11 @@ const ROLE_COPY: Record<Exclude<Role, "owner">, { title: string; icon: React.Ele
 };
 
 export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
-  const { db, login } = useStore();
+  const { db, login, logEvent } = useStore();
   const copy = ROLE_COPY[role];
+  const scope = `otp-${role}`;
+  const lock = useLock(scope);
+  const [resends, setResends] = React.useState(0);
   const [phone, setPhone] = React.useState("");
   const [keep, setKeep] = React.useState(true);
   const [step, setStep] = React.useState<"phone" | "otp">("phone");
@@ -238,14 +262,23 @@ export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
 
   const sendOtp = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const d = digits(phone).slice(-10);
-    const found = people.find((u) => digits(u.phone).slice(-10) === d);
-    if (!found) { setError(copy.notFound); return; }
-    setUser(found); setError(""); setOtp(""); setStep("otp"); setResendIn(30);
+    if (lockRemaining(scope) > 0) return;
+    if (!isValidMobile(phone)) { setError("Enter a 10-digit Indian mobile number starting with 6, 7, 8 or 9."); return; }
+    const d = normalizePhone(phone);
+    const found = people.find((u) => normalizePhone(u.phone) === d);
+    if (!found) {
+      const left = recordFailure(scope);
+      logEvent("anonymous", "login_failed", `Unknown number on ${copy.title.toLowerCase()} (ending ${d.slice(-4)})`);
+      lock.refresh();
+      setError(left === 0 ? "Too many attempts. The form is locked for a while." : copy.notFound);
+      return;
+    }
+    setUser(found); setError(""); setOtp(""); setStep("otp"); setResendIn(30); setResends(0);
   };
   const verify = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!user || otp.length !== 4) return;
+    clearFailures(scope);
     login(user.id, keep);
     navigate("/");
   };
@@ -266,10 +299,12 @@ export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
                   <span className="flex items-center rounded-l-md border border-r-0 bg-muted px-3 text-sm text-muted-foreground">+91</span>
                   <Input id="phone" inputMode="tel" autoComplete="tel-national" autoFocus value={phone} onChange={(e) => { setPhone(e.target.value.replace(/[^\d\s]/g, "").slice(0, 12)); setError(""); }} placeholder="98450 12345" className="h-12 rounded-l-none text-lg tabular-nums" aria-invalid={!!error} />
                 </div>
-                {error && <p className="text-sm text-destructive">{error}</p>}
+                {lock.left > 0
+                  ? <p role="alert" className="text-sm text-destructive">Too many attempts. Try again in {formatWait(lock.left)}.</p>
+                  : error && <p role="alert" className="text-sm text-destructive">{error}</p>}
               </div>
               <KeepSignedIn checked={keep} onChange={setKeep} />
-              <Button type="submit" size="lg" className="h-12 w-full" disabled={digits(phone).length < 10}><Smartphone /> Send OTP</Button>
+              <Button type="submit" size="lg" className="h-12 w-full" disabled={digits(phone).length < 10 || lock.left > 0}><Smartphone /> Send OTP</Button>
             </form>
           ) : (
             <form onSubmit={verify} className="grid gap-5">
@@ -281,8 +316,8 @@ export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
               <CodeBoxes length={4} value={otp} onChange={setOtp} label="OTP" />
               <p className="rounded-md bg-muted px-3 py-2 text-center text-sm text-muted-foreground">Demo: no SMS is sent. Any 4 digits work.</p>
               <Button type="submit" size="lg" className="h-12 w-full" disabled={otp.length !== 4}><Check /> Verify and log in</Button>
-              <Button type="button" variant="ghost" disabled={resendIn > 0} onClick={() => { setResendIn(30); toast.success("Code sent again (demo)"); }}>
-                {resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
+              <Button type="button" variant="ghost" disabled={resendIn > 0 || resends >= 3} onClick={() => { setResendIn(30); setResends(resends + 1); toast.success("Code sent again (demo)"); }}>
+                {resends >= 3 ? "Resend limit reached. Try again later." : resendIn > 0 ? `Resend code in ${resendIn}s` : "Resend code"}
               </Button>
             </form>
           )}
