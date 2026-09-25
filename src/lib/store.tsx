@@ -16,6 +16,27 @@ const SESSION_KEY = "anmol-gas-demo:session";
 export interface Session {
   userId: string; // who logged in
   viewAsUserId?: string; // owner previewing another role
+  remember?: boolean; // "Keep me signed in": localStorage, otherwise only this browser session
+}
+
+function readSession(): Session | null {
+  const saved = readJSON<Session>(SESSION_KEY);
+  if (saved) return saved;
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(s: Session | null) {
+  const keep = s?.remember !== false;
+  writeJSON(SESSION_KEY, s && keep ? s : null);
+  try {
+    if (s && !keep) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
+    else sessionStorage.removeItem(SESSION_KEY);
+  } catch { /* storage blocked: session lives in memory only */ }
 }
 
 interface StoreValue {
@@ -27,7 +48,7 @@ interface StoreValue {
   act: (fn: (draft: DB) => void, success?: string) => boolean;
   resetDemo: () => void;
   session: Session | null;
-  login: (userId: string) => void;
+  login: (userId: string, remember?: boolean) => void;
   logout: () => void;
   viewAs: (userId: string | undefined) => void;
   realUser: User | null;
@@ -78,7 +99,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     currentDb = loaded;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from localStorage once on mount
     setDb(loaded);
-    setSession(readJSON<Session>(SESSION_KEY));
+    setSession(readSession());
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
@@ -115,7 +136,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const saveSession = React.useCallback((s: Session | null) => {
     setSession(s);
-    writeJSON(SESSION_KEY, s);
+    writeSession(s);
   }, []);
 
   const value = React.useMemo<StoreValue | null>(() => {
@@ -128,7 +149,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const user = viewed ?? realUser;
     return {
       db, stock, balances, alerts, now, act, resetDemo, session,
-      login: (userId) => saveSession({ userId }),
+      login: (userId, remember = true) => saveSession({ userId, remember }),
       logout: () => saveSession(null),
       viewAs: (userId) => session && saveSession({ ...session, viewAsUserId: userId }),
       realUser, user, role: user?.role ?? null,

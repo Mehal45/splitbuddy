@@ -8,14 +8,20 @@ Built with Next.js (App Router), TypeScript, Tailwind CSS v4, shadcn/ui (Radix) 
 
 ## Logins
 
-The login screen has one-click buttons, no password:
+Each group has its own login address:
 
-| Role | Sees |
-|---|---|
-| Owner (Anmol Mehta) | Everything. Can also "View as" any warehouse user, driver or customer. |
-| Warehouse staff | Load sheets, approvals, stock receipts, end of day, stock, movement log |
-| Driver (choose any of 12) | Mobile screen: own truck stock, new delivery, own history |
-| Customer (choose any of 40) | Own deliveries with photos, GST invoices, empty balance, payments |
+| Address | Who | How they sign in |
+|---|---|---|
+| `/` (main page) | Owner | 4-digit PIN (demo: **1234**, change it in Settings). After the PIN, the owner can open the app as any role. |
+| `/#staff` | Warehouse staff | Mobile number + OTP |
+| `/#driver` | Drivers | Mobile number + OTP (mobile-first screen) |
+| `/#customer` | Customers | Mobile number + OTP |
+
+OTP is simulated: no SMS is sent and any 4 digits work. Each login page lists a few demo numbers you can tap to fill. "Keep me signed in" is ticked by default. Untick it on shared devices and the login lasts only until the browser tab closes. After the PIN, the owner page shows these links with copy buttons.
+
+## Look (new style / classic)
+
+The app ships with two looks. The **new style** (default) has a black top bar, soft grey cards, lime and coral accents and the Urbanist font. The **classic style** is the original blue design. Switch in the sun/moon menu (top right) or in **Settings → Look**. The choice is saved per device. In code, the pre-restyle version is tagged `v1-classic-theme`.
 
 ## Run locally
 

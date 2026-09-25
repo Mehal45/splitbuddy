@@ -24,19 +24,20 @@ export function PageHeader({ title, description, actions, className }: { title: 
   );
 }
 
-export function StatCard({ label, value, hint, icon: Icon, tone = "default", onClick }: {
+export function StatCard({ label, value, hint, icon: Icon, tone = "default", onClick, highlight = false }: {
   label: string; value: React.ReactNode; hint?: React.ReactNode; icon?: React.ElementType; tone?: "default" | "danger" | "warning" | "success"; onClick?: () => void;
+  highlight?: boolean; // the one headline figure (solid card in the new style)
 }) {
   return (
-    <Card className={cn("gap-2 py-4", onClick && "cursor-pointer transition-colors hover:bg-accent/40")} onClick={onClick}>
+    <Card className={cn("gap-2 py-4", highlight && "stat-hero", onClick && "cursor-pointer transition-colors hover:bg-accent/40")} onClick={onClick}>
       <CardContent className="flex items-start justify-between gap-3 px-4">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{label}</p>
-          <p className={cn("mt-1 text-2xl font-semibold tabular-nums", tone === "danger" && "text-destructive", tone === "warning" && "text-warning-foreground", tone === "success" && "text-success")}>{value}</p>
+          <p className={cn("stat-value mt-1 text-2xl font-semibold tabular-nums", tone === "danger" && "text-destructive", tone === "warning" && "text-warning-foreground", tone === "success" && "text-success")}>{value}</p>
           {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
         </div>
         {Icon && (
-          <div className={cn("rounded-lg p-2", tone === "danger" ? "bg-destructive/10 text-destructive" : tone === "warning" ? "bg-warning/15 text-warning-foreground" : tone === "success" ? "bg-success/10 text-success" : "bg-primary/10 text-primary")}>
+          <div className={cn("stat-icon rounded-lg p-2", tone === "danger" ? "bg-destructive/10 text-destructive" : tone === "warning" ? "bg-warning/15 text-warning-foreground" : tone === "success" ? "bg-success/10 text-success" : "bg-primary/10 text-primary")}>
             <Icon className="size-5" />
           </div>
         )}

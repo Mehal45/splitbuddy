@@ -111,7 +111,7 @@ export function CustomerDetail({ id, portal = false, tab }: { id: string; portal
 
   const balanceCards = (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <StatCard label="Outstanding amount" value={rupees(b.outstanding)} hint={c.paymentMode === "cod" ? "Cash on delivery" : `Credit limit ${rupees(c.creditLimit)}`} tone={over ? "danger" : "default"} icon={Wallet} />
+      <StatCard highlight label="Outstanding amount" value={rupees(b.outstanding)} hint={c.paymentMode === "cod" ? "Cash on delivery" : `Credit limit ${rupees(c.creditLimit)}`} tone={over ? "danger" : "default"} icon={Wallet} />
       <StatCard label="Excess empties owed" value={b.excessEmpties} hint="Above security deposit" tone={b.excessEmpties > db.settings.emptiesTolerance ? "danger" : "success"} />
       <StatCard label="Total billed (60 days)" value={rupees(b.totalBilled)} />
       <StatCard label="Last delivery" value={lastDelivery ? fmtDate(lastDelivery.ts) : "–"} hint={lastDelivery ? qtySummary(lastDelivery.full, sizes) : undefined} />

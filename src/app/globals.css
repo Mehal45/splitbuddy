@@ -5,6 +5,10 @@
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 :root {
+  --app-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --header: var(--background);
+  --header-foreground: var(--foreground);
+  --bar-track: transparent;
   --radius: 0.625rem;
   --background: oklch(0.985 0.002 250);
   --foreground: oklch(0.2 0.02 255);
@@ -105,7 +109,7 @@
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--app-font);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -139,6 +143,8 @@
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
   --color-sidebar: var(--sidebar);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
   --color-sidebar-foreground: var(--sidebar-foreground);
 }
 
@@ -168,7 +174,185 @@ html, body {
 }
 body {
   margin: 0;
-  font-family: var(--font-sans);
+  font-family: var(--app-font);
   font-size: 1rem;
   line-height: 1.5;
+}
+
+/* ==========================================================================
+   "New" style (data-style="studio"), inspired by the reference video:
+   black top bar, soft grey borderless cards, pill controls, one black
+   highlight card, lime + coral accents, light large numerals.
+   Switch back any time: theme menu -> Classic (sets data-style="classic").
+   Unlayered on purpose so these overrides win over Tailwind utilities.
+   ========================================================================== */
+
+:root[data-style="studio"] {
+  --app-font: "Urbanist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --radius: 1.1rem;
+  --background: oklch(0.975 0.002 106);
+  --foreground: oklch(0.18 0 0);
+  --card: oklch(0.938 0.003 106);
+  --card-foreground: oklch(0.18 0 0);
+  --popover: oklch(0.995 0 0);
+  --popover-foreground: oklch(0.18 0 0);
+  --primary: oklch(0.2 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.985 0.002 106);
+  --secondary-foreground: oklch(0.2 0 0);
+  --muted: oklch(0.905 0.003 106);
+  --muted-foreground: oklch(0.47 0.005 106);
+  --accent: oklch(0.9 0.004 106);
+  --accent-foreground: oklch(0.18 0 0);
+  --destructive: oklch(0.58 0.2 30);
+  --success: oklch(0.6 0.17 145);
+  --warning: oklch(0.8 0.15 80);
+  --warning-foreground: oklch(0.45 0.11 65);
+  --info: oklch(0.55 0.13 245);
+  --brand-accent: oklch(0.93 0.2 112);
+  --border: oklch(0.88 0.004 106);
+  --input: oklch(0.86 0.004 106);
+  --ring: oklch(0.5 0 0);
+  --chart-1: oklch(0.66 0.19 33);
+  --chart-2: oklch(0.25 0 0);
+  --chart-3: oklch(0.93 0.2 112);
+  --chart-4: oklch(0.6 0.13 245);
+  --chart-5: oklch(0.6 0.12 300);
+  --sidebar: oklch(0.975 0.002 106);
+  --sidebar-foreground: oklch(0.25 0 0);
+  --header: oklch(0.18 0 0);
+  --header-foreground: oklch(0.97 0 0);
+  --bar-track: oklch(0.9 0.003 106);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-style="studio"]:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: oklch(0.155 0 0);
+    --foreground: oklch(0.96 0 0);
+    --card: oklch(0.215 0 0);
+    --card-foreground: oklch(0.96 0 0);
+    --popover: oklch(0.24 0 0);
+    --popover-foreground: oklch(0.96 0 0);
+    --primary: oklch(0.93 0.2 112);
+    --primary-foreground: oklch(0.17 0 0);
+    --secondary: oklch(0.27 0 0);
+    --secondary-foreground: oklch(0.96 0 0);
+    --muted: oklch(0.27 0 0);
+    --muted-foreground: oklch(0.72 0 0);
+    --accent: oklch(0.29 0 0);
+    --accent-foreground: oklch(0.96 0 0);
+    --destructive: oklch(0.7 0.18 30);
+    --success: oklch(0.75 0.17 145);
+    --warning-foreground: oklch(0.86 0.13 85);
+    --info: oklch(0.74 0.12 245);
+    --border: oklch(1 0 0 / 9%);
+    --input: oklch(1 0 0 / 14%);
+    --ring: oklch(0.7 0 0);
+    --chart-1: oklch(0.7 0.18 33);
+    --chart-2: oklch(0.93 0.2 112);
+    --sidebar: oklch(0.155 0 0);
+    --sidebar-foreground: oklch(0.9 0 0);
+    --header: oklch(0.1 0 0);
+    --header-foreground: oklch(0.97 0 0);
+    --bar-track: oklch(0.27 0 0);
+  }
+}
+
+:root[data-style="studio"][data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.155 0 0);
+  --foreground: oklch(0.96 0 0);
+  --card: oklch(0.215 0 0);
+  --card-foreground: oklch(0.96 0 0);
+  --popover: oklch(0.24 0 0);
+  --popover-foreground: oklch(0.96 0 0);
+  --primary: oklch(0.93 0.2 112);
+  --primary-foreground: oklch(0.17 0 0);
+  --secondary: oklch(0.27 0 0);
+  --secondary-foreground: oklch(0.96 0 0);
+  --muted: oklch(0.27 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.29 0 0);
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.7 0.18 30);
+  --success: oklch(0.75 0.17 145);
+  --warning-foreground: oklch(0.86 0.13 85);
+  --info: oklch(0.74 0.12 245);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.7 0 0);
+  --chart-1: oklch(0.7 0.18 33);
+  --chart-2: oklch(0.93 0.2 112);
+  --sidebar: oklch(0.155 0 0);
+  --sidebar-foreground: oklch(0.9 0 0);
+  --header: oklch(0.1 0 0);
+  --header-foreground: oklch(0.97 0 0);
+  --bar-track: oklch(0.27 0 0);
+}
+
+/* Shapes: borderless soft cards, pill controls */
+[data-style="studio"] [data-slot="card"] { border-color: transparent; box-shadow: none; }
+[data-style="studio"] [data-slot="button"],
+[data-style="studio"] [data-slot="tabs-list"],
+[data-style="studio"] [data-slot="tabs-trigger"],
+[data-style="studio"] [data-slot="badge"] { border-radius: 9999px; }
+[data-style="studio"] [data-slot="select-trigger"],
+[data-style="studio"] [data-slot="input"] { border-radius: 0.8rem; }
+[data-style="studio"] [data-slot="dialog-content"] { border-radius: 1.5rem; border-color: transparent; }
+[data-style="studio"] [data-slot="table-container"] { border-radius: 0.9rem; }
+
+/* Black top bar, inset like a floating toolbar */
+[data-style="studio"] .app-header {
+  --foreground: var(--header-foreground);
+  --muted-foreground: oklch(0.75 0 0);
+  --border: oklch(1 0 0 / 14%);
+  --accent: oklch(1 0 0 / 12%);
+  --accent-foreground: var(--header-foreground);
+  --primary: oklch(0.93 0.2 112);
+  --primary-foreground: oklch(0.17 0 0);
+  margin: 10px 12px 0;
+  top: 10px;
+  border: 0;
+  border-radius: 1.25rem;
+  background: var(--header);
+  color: var(--header-foreground);
+}
+[data-style="studio"] .app-header-mobile { margin: 8px 8px 0; top: 8px; }
+
+/* Logo tile: black with a lime mark */
+[data-style="studio"] .logo-mark { background: oklch(0.18 0 0); color: oklch(0.93 0.2 112); box-shadow: inset 0 0 0 1px oklch(1 0 0 / 12%); }
+
+/* Active navigation item: solid pill */
+[data-style="studio"] .nav-active { background: var(--primary); color: var(--primary-foreground); }
+
+/* Big numbers: light weight, tight tracking */
+[data-style="studio"] .stat-value { font-weight: 400; font-size: 1.75rem; line-height: 2.1rem; letter-spacing: -0.02em; }
+[data-style="studio"] .stat-icon { border-radius: 9999px; background: var(--background); }
+
+/* The one highlight card (black in light mode, lime in dark mode) */
+[data-style="studio"] .stat-hero {
+  background: var(--primary);
+  --foreground: var(--primary-foreground);
+  --card-foreground: var(--primary-foreground);
+  color: var(--primary-foreground);
+}
+[data-style="studio"]:not([data-theme="dark"]) .stat-hero { --muted-foreground: oklch(0.78 0 0); }
+[data-style="studio"][data-theme="dark"] .stat-hero { --muted-foreground: oklch(0.35 0 0); }
+[data-style="studio"] .stat-hero .stat-icon { background: var(--primary-foreground); color: var(--primary); }
+[data-style="studio"] .stat-hero [data-slot="button"] { background: var(--primary-foreground); color: var(--primary); }
+
+/* Login background */
+.login-bg { background: linear-gradient(to bottom, color-mix(in oklab, var(--primary) 10%, var(--background)), var(--background) 45%); }
+[data-style="studio"] .login-bg { background: var(--background); }
+
+/* Cards rise in gently */
+@keyframes studio-rise { from { opacity: 0; transform: translateY(10px); } }
+[data-style="studio"] main [data-slot="card"] { animation: studio-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+[data-style="studio"] main [data-slot="card"]:nth-child(2) { animation-delay: 0.05s; }
+[data-style="studio"] main [data-slot="card"]:nth-child(3) { animation-delay: 0.1s; }
+[data-style="studio"] main [data-slot="card"]:nth-child(4) { animation-delay: 0.15s; }
+[data-style="studio"] main [data-slot="card"]:nth-child(5) { animation-delay: 0.2s; }
+@media (prefers-reduced-motion: reduce) {
+  [data-style="studio"] main [data-slot="card"] { animation: none; }
 }

@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
-  Receipt, RefreshCw, Scale, Settings, Sun, Truck, Users, Wallet, ListChecks, Home, Flame,
+  Receipt, RefreshCw, Scale, Settings, Sun, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { custName } from "@/lib/format";
 import { Link, navigate } from "@/lib/router";
+import { LOGIN_PATH } from "@/lib/auth";
+import { setUiStyle, useUiStyle } from "@/lib/ui-style";
 import { useStore } from "@/lib/store";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -69,7 +71,7 @@ function isActive(href: string, path: string) {
 
 export function Logo({ className }: { className?: string }) {
   return (
-    <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground", className)}>
+    <div className={cn("logo-mark flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground", className)}>
       <Flame className="size-5" />
     </div>
   );
@@ -89,7 +91,7 @@ function NavLinks({ items, path, onNavigate }: { items: NavItem[]; path: string;
         const count = it.badge ? counts[it.badge] : 0;
         return (
           <Link key={it.href} href={it.href} onClick={onNavigate}
-            className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors", active ? "bg-primary/10 text-primary" : "text-sidebar-foreground/80 hover:bg-accent hover:text-foreground")}>
+            className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors", active ? "nav-active bg-primary/10 text-primary" : "text-sidebar-foreground/80 hover:bg-accent hover:text-foreground")}>
             <it.icon className="size-4" />
             <span className="flex-1">{it.label}</span>
             {count > 0 && <Badge variant={it.badge === "alerts" ? "destructive" : "warning"} className="px-1.5">{count}</Badge>}
@@ -111,6 +113,7 @@ function applyTheme(t: ThemePref) {
 
 export function ThemeToggle() {
   const [pref, setPref] = React.useState<ThemePref>("system");
+  const uiStyle = useUiStyle();
   React.useEffect(() => {
     let saved: ThemePref = "system";
     try { saved = (localStorage.getItem("anmol-theme") as ThemePref) || "system"; } catch { /* ignore */ }
@@ -127,12 +130,18 @@ export function ThemeToggle() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Theme"><Icon /></Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Mode</DropdownMenuLabel>
         {(["light", "dark", "system"] as ThemePref[]).map((t) => (
           <DropdownMenuItem key={t} onClick={() => { setPref(t); applyTheme(t); }}>
             {t === "light" ? <Sun /> : t === "dark" ? <Moon /> : <Monitor />} {t[0].toUpperCase() + t.slice(1)}
+            {pref === t && <Check className="ml-auto" />}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Look</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => setUiStyle("studio")}><Sparkles /> New style{uiStyle === "studio" && <Check className="ml-auto" />}</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setUiStyle("classic")}><Undo2 /> Classic style{uiStyle === "classic" && <Check className="ml-auto" />}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -224,7 +233,7 @@ function UserMenu() {
           <DropdownMenuLabel>{realUser?.name}<span className="block text-xs font-normal text-muted-foreground">{ROLE_LABEL[realUser!.role]}</span></DropdownMenuLabel>
           <DropdownMenuSeparator />
           {realUser?.role === "owner" && <DropdownMenuItem onClick={() => setViewOpen(true)}><Eye /> View as another role…</DropdownMenuItem>}
-          <DropdownMenuItem onClick={() => { logout(); navigate("/"); }}><LogOut /> Log out</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => { const home = LOGIN_PATH[realUser!.role]; logout(); navigate(home); }}><LogOut /> Log out</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       <ViewAsDialog open={viewOpen} onOpenChange={setViewOpen} />
@@ -256,7 +265,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
       <div className="min-h-dvh bg-muted/40">
         <ViewAsBanner />
         <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background shadow-sm">
-          <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur">
+          <header className="app-header app-header-mobile no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <Brand compact />
             <div className="flex items-center gap-1"><Badge variant="outline" className="text-muted-foreground">Demo</Badge><ThemeToggle /><UserMenu /></div>
           </header>
@@ -286,7 +295,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
           )}
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
+          <header className="app-header no-print sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu"><Menu /></Button>

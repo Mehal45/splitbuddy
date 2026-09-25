@@ -23,7 +23,7 @@ export function WarehouseHome() {
       <PageHeader title={`Good day, ${user?.name.split(" ")[0]}`} description={`Warehouse overview for ${fmtDate(today)}`} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
-        <StatCard label="Trucks loaded today" value={trucksOut} icon={Truck} onClick={() => navigate("/loads")} />
+        <StatCard label="Trucks loaded today" value={trucksOut} icon={Truck} onClick={() => navigate("/loads")} highlight />
         <StatCard label="Trucks returned" value={`${returned} / ${trucksOut}`} icon={Scale} onClick={() => navigate("/reconciliation")} />
         <StatCard label="Mismatches today" value={mismatches} icon={AlertTriangle} tone={mismatches ? "danger" : "success"} onClick={() => navigate("/reconciliation")} />
       </div>

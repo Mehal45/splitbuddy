@@ -37,6 +37,7 @@ export interface Settings {
   emptiesTolerance: number; // allowed cylinders above security deposit
   gpsMaxDistanceKm: number;
   hsnCode: string;
+  ownerPin?: string; // demo lock for the owner login page
 }
 
 export interface User {

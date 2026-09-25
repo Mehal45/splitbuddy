@@ -16,13 +16,18 @@ export const viewport: Viewport = {
 };
 
 // Resolve the saved theme before first paint to avoid a flash.
-const themeScript = `(function(){try{var t=localStorage.getItem('anmol-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
+// Also applies the look (new "studio" style by default, or "classic").
+const themeScript = `(function(){var r=document.documentElement;r.setAttribute('data-style','studio');try{var s=localStorage.getItem('anmol-style');if(s==='classic')r.setAttribute('data-style','classic');var t=localStorage.getItem('anmol-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);r.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-IN" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        {/* eslint-disable-next-line @next/next/no-page-custom-font -- single-page app, font is only used by the new style */}
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700&display=swap" />
       </head>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>

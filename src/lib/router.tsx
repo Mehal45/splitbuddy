@@ -9,7 +9,9 @@ import { cn } from "./utils";
 function currentPath() {
   if (typeof window === "undefined") return "/";
   const h = window.location.hash.replace(/^#/, "");
-  return h.startsWith("/") ? h : "/";
+  if (!h) return "/";
+  // Short share links like #driver work too (some hosts only pass plain anchors)
+  return h.startsWith("/") ? h : `/${h}`;
 }
 
 export function usePath() {

@@ -5,16 +5,22 @@ import { ShieldAlert } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/app/shell";
 import { EmptyState } from "@/components/app/common";
-import { match, usePath } from "@/lib/router";
+import { LOGIN_PAGES } from "@/lib/auth";
+import { match, navigate, usePath } from "@/lib/router";
 import { StoreProvider, useStore } from "@/lib/store";
 import type { Role } from "@/lib/types";
-import { LoginView } from "@/views/login";
+import { LoginRouter } from "@/views/login";
 import { ROUTES } from "@/views/routes";
 
 function Router() {
   const path = usePath();
   const { user, role } = useStore();
-  if (!user || !role) return <LoginView />;
+  const isLoginPage = LOGIN_PAGES.includes(path);
+  React.useEffect(() => {
+    // A signed-in person who opens a login link just lands on their home screen
+    if (user && isLoginPage) navigate("/");
+  }, [user, isLoginPage]);
+  if (!user || !role) return <LoginRouter path={path} />;
 
   let content: React.ReactNode = null;
   for (const r of ROUTES) {

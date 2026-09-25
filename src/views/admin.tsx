@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, Info, Laptop, Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { Check, CheckCircle2, Info, Laptop, Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import { EmptyState, PageHeader } from "@/components/app/common";
 import { createPurchase, createSaleInvoice, custLoc, locQty, move, nextId, recordPayment, WH, computeStock } from "@/lib/engine";
 import { custName, dayKey, fmtDateTime, rupees, timeAgo } from "@/lib/format";
 import { useActorId } from "@/lib/hooks";
+import { setUiStyle, useUiStyle, type UiStyle } from "@/lib/ui-style";
 import { useStore } from "@/lib/store";
 import type { CylinderSize, DB, Settings, SyncLogEntry } from "@/lib/types";
 
@@ -133,6 +134,28 @@ export function TallyView() {
 
 // ---------- settings ----------
 
+function LookCard() {
+  const style = useUiStyle();
+  const options: { id: UiStyle; title: string; desc: string }[] = [
+    { id: "studio", title: "New style", desc: "Black top bar, soft grey cards, lime and coral accents." },
+    { id: "classic", title: "Classic style", desc: "The original blue look." },
+  ];
+  return (
+    <Card>
+      <CardHeader><CardTitle>Look</CardTitle><CardDescription>Applies on this device. Also in the sun/moon menu at the top.</CardDescription></CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-2">
+        {options.map((o) => (
+          <button key={o.id} type="button" onClick={() => setUiStyle(o.id)} aria-pressed={style === o.id}
+            className={`flex items-start gap-3 rounded-xl border p-4 text-left transition-colors ${style === o.id ? "border-primary bg-primary/5" : "hover:bg-accent/50"}`}>
+            <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border ${style === o.id ? "border-primary bg-primary text-primary-foreground" : ""}`}>{style === o.id && <Check className="size-3" />}</span>
+            <span><span className="block font-medium">{o.title}</span><span className="block text-sm text-muted-foreground">{o.desc}</span></span>
+          </button>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SettingsView() {
   const { db, act, resetDemo } = useStore();
   const [s, setS] = React.useState<Settings>(() => structuredClone(db.settings));
@@ -158,6 +181,7 @@ export function SettingsView() {
             <div className="grid gap-1.5"><Label>Tagline</Label><Input value={s.agencyTagline} onChange={(e) => setS({ ...s, agencyTagline: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label>GSTIN</Label><Input className="font-mono" value={s.agencyGstin} onChange={(e) => setS({ ...s, agencyGstin: e.target.value.toUpperCase() })} /></div>
             <div className="grid gap-1.5"><Label>Address</Label><Input value={s.agencyAddress} onChange={(e) => setS({ ...s, agencyAddress: e.target.value })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
           </CardContent>
         </Card>
 
@@ -195,6 +219,8 @@ export function SettingsView() {
             <div className="grid gap-1.5"><Label>GPS distance limit (km)</Label><Input inputMode="decimal" value={s.gpsMaxDistanceKm} onChange={(e) => setS({ ...s, gpsMaxDistanceKm: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} /></div>
           </CardContent>
         </Card>
+
+        <LookCard />
 
         <Card className="border-destructive/40">
           <CardHeader><CardTitle>Demo data</CardTitle><CardDescription>Everything you add in this demo is saved in this browser only.</CardDescription></CardHeader>

@@ -27,7 +27,9 @@ await build({
   logLevel: "error",
 });
 
-const theme = `(function(){try{var t=localStorage.getItem('anmol-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
+// Same as the inline script in src/app/layout.tsx
+const theme = `(function(){var r=document.documentElement;r.setAttribute('data-style','studio');try{var s=localStorage.getItem('anmol-style');if(s==='classic')r.setAttribute('data-style','classic');var t=localStorage.getItem('anmol-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);r.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
+const font = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700&display=swap">`;
 fs.writeFileSync(path.join(dst, "index.html"), `<!doctype html>
 <html lang="en-IN">
 <head>
@@ -36,6 +38,7 @@ fs.writeFileSync(path.join(dst, "index.html"), `<!doctype html>
 <title>Anmol Gas Agency</title>
 <meta name="description" content="Demo: stock, deliveries, approvals and billing for a Bharat Gas distributor in Bangalore.">
 <script>${theme}</script>
+${font}
 <link rel="stylesheet" href="app.css">
 </head>
 <body class="min-h-dvh antialiased">
@@ -44,4 +47,8 @@ fs.writeFileSync(path.join(dst, "index.html"), `<!doctype html>
 </body>
 </html>
 `);
+// Single self-contained file (inline CSS + JS) for hosts that only allow inline code
+const js = fs.readFileSync(path.join(dst, "app.js"), "utf8").replace(/<\/script/gi, "<\\/script");
+fs.writeFileSync(path.join(dst, "single.html"), `<title>Anmol Gas Agency</title>\n<script>${theme}</script>\n${font}\n<style>${css.replace(/<\/style/gi, "<\\/style")}</style>\n<div id="root"></div>\n<script>${js}</script>\n`);
+
 for (const f of fs.readdirSync(dst)) console.log(f, (fs.statSync(path.join(dst, f)).size / 1024).toFixed(0) + " KB");

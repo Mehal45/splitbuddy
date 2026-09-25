@@ -21,21 +21,22 @@ const server = http.createServer((req, res) => {
 }).listen(0);
 const port = server.address().port;
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium" });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium", ...(process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY, bypass: "localhost,127.0.0.1" } } : {}) });
 fs.mkdirSync(outDir, { recursive: true });
 const errors = [];
 for (const j of jobs) {
   const mobile = j.opts.includes("mobile");
   const dark = j.opts.includes("dark");
-  const ctx = await browser.newContext({ viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, deviceScaleFactor: mobile ? 2 : 1, colorScheme: dark ? "dark" : "light", geolocation: { latitude: 12.925, longitude: 77.594 }, permissions: ["geolocation"] });
-  await ctx.addInitScript(({ user, dark }) => {
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 }, deviceScaleFactor: mobile ? 2 : 1, colorScheme: dark ? "dark" : "light", geolocation: { latitude: 12.925, longitude: 77.594 }, permissions: ["geolocation"] });
+  await ctx.addInitScript(({ user, dark, style }) => {
     if (!sessionStorage.getItem("init")) {
       sessionStorage.setItem("init", "1");
+      localStorage.setItem("anmol-style", style);
       if (user === "-") localStorage.removeItem("anmol-gas-demo:session");
       else localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: user }));
       localStorage.setItem("anmol-theme", dark ? "dark" : "light");
     }
-  }, { user: j.user, dark });
+  }, { user: j.user, dark, style: j.opts.includes("classic") ? "classic" : "studio" });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`${j.name}: ${e.message}`));
   page.on("console", (m) => { if (m.type() === "error") errors.push(`${j.name} console: ${m.text()}`); });

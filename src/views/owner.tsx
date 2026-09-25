@@ -12,6 +12,7 @@ import { custName, dayKey, fmtDateShort, rupees, rupeesShort } from "@/lib/forma
 import { Link, navigate } from "@/lib/router";
 import { ALERT_LABEL, driverPerformance, salesByDay, salesTotals, stockFlowByDay, type Alert, type AlertKind } from "@/lib/selectors";
 import { useStore } from "@/lib/store";
+import { useUiStyle } from "@/lib/ui-style";
 import { cn } from "@/lib/utils";
 import { StockGrid } from "./stock";
 
@@ -47,6 +48,7 @@ const axisProps = { stroke: "var(--muted-foreground)", fontSize: 11, tickLine: f
 
 export function OwnerDashboard() {
   const { db, balances, alerts, now, user } = useStore();
+  const studio = useUiStyle() === "studio";
   const today = dayKey();
   const todays = db.deliveries.filter((d) => d.date === today && d.status !== "rejected");
   const pending = db.deliveries.filter((d) => d.status === "pending").length;
@@ -70,7 +72,7 @@ export function OwnerDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <StatCard label="Today's deliveries" value={todays.length} hint={`${todays.reduce((s, d) => s + Object.values(d.full).reduce((a, b) => a + b, 0), 0)} cylinders`} icon={Truck} onClick={() => navigate("/approvals")} />
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
-        <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} />
+        <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} highlight />
         <StatCard label="Sales this month" value={rupeesShort(sales.month)} icon={TrendingUp} onClick={() => navigate("/reports")} />
         <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone="danger" onClick={() => navigate("/customers")} />
       </div>
@@ -111,7 +113,7 @@ export function OwnerDashboard() {
                 <XAxis dataKey="date" {...axisProps} tickFormatter={(d) => fmtDateShort(d)} minTickGap={24} />
                 <YAxis {...axisProps} width={48} tickFormatter={(v: number) => (v >= 1e5 ? `₹${+(v / 1e5).toFixed(1)}L` : v >= 1000 ? `₹${Math.round(v / 1000)}k` : `₹${v}`)} />
                 <Tooltip content={<ChartTooltip money />} cursor={{ fill: "var(--muted)" }} />
-                <Bar dataKey="total" name="Sales" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={18} />
+                <Bar dataKey="total" name="Sales" fill="var(--chart-1)" radius={studio ? [8, 8, 8, 8] : [4, 4, 0, 0]} maxBarSize={studio ? 22 : 18} background={studio ? { fill: "var(--bar-track)", radius: 8 } : undefined} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

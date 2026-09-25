@@ -24,8 +24,26 @@ page.on("pageerror", (e) => errors.push(e.message));
 const step = (s) => console.log("✓", s);
 const db = () => page.evaluate(() => JSON.parse(localStorage.getItem("anmol-gas-demo:db")));
 
+// Owner page is PIN protected
 await page.goto(base);
-await page.getByRole("button", { name: "Log in as driver" }).click();
+await page.getByLabel("PIN digit 1").fill("9999");
+await page.getByRole("button", { name: "Unlock" }).click();
+await page.getByText("That PIN is not correct").waitFor();
+step("owner page rejects a wrong PIN");
+
+// Driver logs in on their own page with mobile number + OTP
+await page.goto(base + "#driver");
+await page.getByLabel("Mobile number").fill("12345 67890");
+await page.getByRole("button", { name: "Send OTP" }).click();
+await page.getByText("isn't registered as a driver").waitFor();
+const ravi = (await db()).users.find((u) => u.id === "u-dr1");
+await page.getByLabel("Mobile number").fill(ravi.phone);
+if (!(await page.getByRole("checkbox", { name: "Keep me signed in" }).isChecked())) throw new Error("keep signed in should default on");
+await page.getByRole("button", { name: "Send OTP" }).click();
+await page.getByLabel("OTP digit 1").fill("4821");
+await page.getByRole("button", { name: "Verify and log in" }).click();
+await page.getByText("On my truck now").waitFor();
+step("driver logged in with phone + OTP on #driver");
 await page.getByRole("link", { name: "New delivery" }).first().click();
 await page.getByPlaceholder("Search name, area or phone").fill("tandoor");
 await page.getByRole("button", { name: /Tandoor Tales Kitchen/ }).click();
@@ -42,10 +60,22 @@ const newD = after.deliveries.at(-1);
 if (after.deliveries.length !== before.deliveries.length + 1 || newD.status !== "pending") throw new Error("delivery not created");
 step(`driver submitted ${newD.no} (pending, GPS ${newD.gps.mocked ? "mock" : "real"})`);
 
-// Owner approves it
-await page.getByRole("button", { name: /Ravi Kumar/ }).click();
+// Logging out returns the driver to the driver login page
+await page.getByRole("button", { name: /RK/ }).click();
 await page.getByRole("menuitem", { name: "Log out" }).click();
-await page.getByRole("button", { name: "Log in as owner" }).click();
+await page.getByText("Driver login").waitFor();
+step("driver log out goes back to #driver");
+
+// Owner unlocks with the PIN, without "keep me signed in" (session only)
+await page.goto(base + "#/");
+await page.getByLabel("PIN digit 1").fill("1234");
+await page.getByRole("checkbox", { name: "Keep me signed in" }).click();
+await page.getByRole("button", { name: "Unlock" }).click();
+await page.getByRole("button", { name: "Open as owner" }).click();
+await page.getByText("Stock across locations").waitFor();
+const stored = await page.evaluate(() => [localStorage.getItem("anmol-gas-demo:session"), sessionStorage.getItem("anmol-gas-demo:session")]);
+if (stored[0] !== null || !stored[1]) throw new Error("unticked keep-signed-in should use session storage only");
+step("owner PIN login; unticked 'keep me signed in' keeps session for this tab only");
 await page.goto(base + "#/approvals");
 const card = page.locator("[data-slot=card]", { hasText: newD.no });
 await card.getByRole("button", { name: "Approve" }).click();
