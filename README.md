@@ -21,7 +21,7 @@ OTP is simulated: no SMS is sent and any 4 digits work. Each login page lists a 
 
 ## Look (new style / classic)
 
-The app ships with two looks. The **new style** (default) has a black top bar, soft grey cards, lime and coral accents and the Urbanist font. The **classic style** is the original blue design. Switch in the sun/moon menu (top right) or in **Settings → Look**. The choice is saved per device. In code, the pre-restyle version is tagged `v1-classic-theme`.
+The app ships with two looks. The **new style** (default) has a black top bar, soft grey cards, lime and coral accents and the Urbanist font. The **classic style** is the original blue design. Switch in the sun/moon menu (top right) or in **Settings → Look**. The choice is saved per device. In code, the version before the restyle is commit `3cc6d12` (`git checkout 3cc6d12`).
 
 ## Run locally
 
