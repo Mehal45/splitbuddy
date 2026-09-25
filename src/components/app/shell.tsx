@@ -238,8 +238,8 @@ function Brand({ compact = false }: { compact?: boolean }) {
     <Link href="/" className="flex min-w-0 items-center gap-2.5">
       <Logo />
       <span className={cn("min-w-0 leading-tight", compact && "hidden sm:block")}>
-        <span className="block truncate font-semibold">{db.settings.agencyName}</span>
-        <span className="block truncate text-xs text-muted-foreground">{db.settings.agencyTagline}</span>
+        <span className="block font-semibold">{db.settings.agencyName}</span>
+        <span className="block text-xs text-muted-foreground">{db.settings.agencyTagline}</span>
       </span>
     </Link>
   );
@@ -258,9 +258,9 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
         <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background shadow-sm">
           <header className="no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <Brand compact />
-            <div className="flex items-center gap-1"><ThemeToggle /><UserMenu /></div>
+            <div className="flex items-center gap-1"><Badge variant="outline" className="text-muted-foreground">Demo</Badge><ThemeToggle /><UserMenu /></div>
           </header>
-          <main className="flex-1 px-4 pt-4 pb-28">{children}</main>
+          <main className="min-w-0 flex-1 px-4 pt-4 pb-28">{children}</main>
           <nav className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-md grid-cols-3 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
             {items.map((it) => (
               <Link key={it.href} href={it.href} className={cn("flex h-16 flex-col items-center justify-center gap-1 text-xs font-medium", isActive(it.href, path) ? "text-primary" : "text-muted-foreground")}>
@@ -301,6 +301,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
             </Sheet>
             <div className="lg:hidden"><Brand compact /></div>
             <div className="ml-auto flex items-center gap-1">
+              <Badge variant="outline" className="mr-1 hidden text-muted-foreground sm:inline-flex">Demo · sample data</Badge>
               {role === "owner" && <AlertBell />}
               <ThemeToggle />
               <UserMenu />

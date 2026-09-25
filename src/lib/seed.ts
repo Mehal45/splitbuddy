@@ -10,7 +10,7 @@ import { dayKey } from "./format";
 import { customerBalances } from "./selectors";
 import type { Customer, CylinderSize, DB, Driver, SizeQty, Truck } from "./types";
 
-export const DB_VERSION = 3;
+export const DB_VERSION = 5;
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -137,8 +137,8 @@ export function buildSeed(nowMs = Date.now()): DB {
     },
     users: [], drivers: [], trucks: [], customers: [],
     plants: [
-      { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29AAACB2902M1ZT", state: "Karnataka" },
-      { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33AAACB2902M1ZR", state: "Tamil Nadu" },
+      { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29ABCDE1234F1Z5", state: "Karnataka" },
+      { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33ABCDE1234F1Z9", state: "Tamil Nadu" },
     ],
     movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [],
     lastSyncedAt: null, counters: {},
@@ -316,7 +316,7 @@ export function buildSeed(nowMs = Date.now()): DB {
           approveDelivery(db, d2.id, reviewer, reviewTs(1.5));
         } else if (isToday) {
           const ageH = (nowMs - new Date(ts).getTime()) / 36e5;
-          if (ageH > 2 && truckId !== "t1") approveDelivery(db, d.id, reviewer, reviewTs(1));
+          if (ageH > 2.5) approveDelivery(db, d.id, reviewer, reviewTs(1));
         } else if (isYesterday && truckId === "t6" && k === items.length - 1) {
           // left pending overnight -> "approval overdue" alert
         } else {
@@ -360,7 +360,7 @@ export function buildSeed(nowMs = Date.now()): DB {
       if (isToday) {
         // one truck came back short today
         actual["19"] = { full: Math.max(0, expected["19"].full - 1), empty: Math.max(0, expected["19"].empty - 1) };
-      } else if (r() < 0.03) {
+      } else if (r() < 0.012) {
         const s = pick(Object.keys(actual).filter((k) => expected[k].full > 0));
         if (s) actual[s].full -= 1;
       }
@@ -389,7 +389,7 @@ export function buildSeed(nowMs = Date.now()): DB {
   for (const c of db.customers) {
     if (c.paymentMode !== "credit") continue;
     const due = bal[c.id].outstanding;
-    if (flags[c.id] === "C") c.creditLimit = Math.max(25000, Math.floor((due * 0.75) / 5000) * 5000);
+    if (flags[c.id] === "C") c.creditLimit = Math.max(5000, Math.floor((due * 0.75) / 5000) * 5000);
     else if (due > c.creditLimit * 0.9) c.creditLimit = Math.ceil((due * 1.4) / 10000) * 10000;
   }
 

@@ -155,3 +155,35 @@ export function salesTotals(db: DB, now = Date.now()) {
 }
 
 export { computeStock };
+
+export function driverPerformance(db: DB, from: string, to: string) {
+  return db.drivers.map((drv) => {
+    const ds = db.deliveries.filter((d) => d.driverId === drv.id && d.date >= from && d.date <= to);
+    const approved = ds.filter((d) => d.status === "approved");
+    const rejected = ds.filter((d) => d.status === "rejected").length;
+    const cylinders = approved.reduce((s, d) => s + Object.values(d.full).reduce((a, b) => a + b, 0), 0);
+    const collected = approved.reduce((s, d) => s + (d.payment?.amount ?? 0), 0);
+    const recs = db.reconciliations.filter((r) => r.driverId === drv.id && r.date >= from && r.date <= to);
+    const mismatches = recs.filter((r) => r.mismatch).length;
+    const gpsFar = ds.filter((d) => {
+      const c = db.customers.find((x) => x.id === d.customerId);
+      return c && distanceKm(d.gps, c) > db.settings.gpsMaxDistanceKm;
+    }).length;
+    const days = new Set(ds.map((d) => d.date)).size;
+    return { driver: drv, deliveries: ds.length, approved: approved.length, rejected, cylinders, collected, trips: recs.length, mismatches, gpsFar, days, rejectRate: ds.length ? rejected / ds.length : 0 };
+  });
+}
+
+export function stockFlowByDay(db: DB, days: number, now = Date.now()) {
+  const map = new Map<string, { date: string; received: number; delivered: number }>();
+  for (let i = days - 1; i >= 0; i--) { const k = dayKey(new Date(now - i * 864e5)); map.set(k, { date: k, received: 0, delivered: 0 }); }
+  for (const m of db.movements) {
+    const k = dayKey(m.ts);
+    const row = map.get(k);
+    if (!row || m.state !== "full") continue;
+    if (m.from === "PLANT" && m.to === "WH") row.received += m.qty;
+    if (m.to.startsWith("CUST:") && (m.from.startsWith("TRUCK:") || m.from === "WH")) row.delivered += m.qty;
+    if (m.from.startsWith("CUST:") && m.refType === "reversal") row.delivered -= m.qty;
+  }
+  return [...map.values()];
+}

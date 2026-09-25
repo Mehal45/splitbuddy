@@ -1,36 +1,74 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Anmol Gas Agency – LPG distribution demo
 
-## Getting Started
+Clickable demo for a Bharat Gas distributor in Bangalore: stock by size and state, load sheets, driver deliveries with photo + GPS, approvals, end-of-day truck reconciliation, GST invoices, Tally sync (mock), reports and a customer portal.
 
-First, run the development server:
+**Demo only.** There is no backend, no AI and no paid service. All data is sample data kept in the browser's localStorage, so anything you do survives a refresh. **Settings → Reset demo data** rebuilds a fresh 60-day history that ends today.
+
+Built with Next.js (App Router), TypeScript, Tailwind CSS v4, shadcn/ui (Radix) and Recharts.
+
+## Logins
+
+The login screen has one-click buttons, no password:
+
+| Role | Sees |
+|---|---|
+| Owner (Anmol Mehta) | Everything. Can also "View as" any warehouse user, driver or customer. |
+| Warehouse staff | Load sheets, approvals, stock receipts, end of day, stock, movement log |
+| Driver (choose any of 12) | Mobile screen: own truck stock, new delivery, own history |
+| Customer (choose any of 40) | Own deliveries with photos, GST invoices, empty balance, payments |
+
+## Run locally
+
+Needs Node.js 20 or newer (https://nodejs.org).
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. To test the driver screen on a phone, open `http://<your-computer-ip>:3000` on the same Wi-Fi. The browser only allows camera and GPS on `https` or `localhost`; otherwise the app uses the gallery picker and a mock GPS point.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Production build (static files in `out/`):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npx serve out
+```
 
-## Learn More
+## Deploy free on Vercel
 
-To learn more about Next.js, take a look at the following resources:
+1. Push this repository to GitHub (already done if you are reading this there).
+2. Go to https://vercel.com, sign up with GitHub (the Hobby plan is free).
+3. Click **Add New… → Project**, pick this repository and click **Import**.
+4. Keep the defaults (Framework preset: Next.js). Click **Deploy**.
+5. After about a minute you get a link like `https://anmol-gas-demo.vercel.app`. It works on phones too, with real camera and GPS because it is https.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Every push to the branch redeploys automatically. Each visitor gets their own copy of the demo data in their browser.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Useful scripts
 
-## Deploy on Vercel
+| Command | What it does |
+|---|---|
+| `npm run dev` | Development server |
+| `npm run build` | Static export to `out/` |
+| `npm run lint` | ESLint |
+| `npm run check:data` | Builds the mock data at several times of day and prints stock and alert checks |
+| `npm run test:e2e` | After a build: clicks through driver → approval → load sheet → end of day → Tally → reports → reset |
+| `npm run preview:relative` | After a build: copies `out/` to `preview/` with relative asset paths (host under any sub-path) |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Where things are
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/lib/types.ts`: data model (sizes, states, locations, movements, deliveries, invoices…)
+- `src/lib/engine.ts`: business rules (load sheet, delivery, approve or reject, reconcile, purchase, GST)
+- `src/lib/seed.ts`: 60-day Bangalore demo data (12 trucks and drivers, 40 customers, every alert present)
+- `src/lib/selectors.ts`: balances, alerts, dashboard numbers
+- `src/lib/store.tsx`: localStorage persistence and roles
+- `src/views/*`: screens
+
+Routing uses the URL hash (`/#/approvals`) inside a single App Router page. That keeps the whole app one static bundle that runs the same on Vercel or any static host.
+
+## Notes for the real version
+
+- Replace localStorage with a database (for example Postgres) and real logins with OTP.
+- Tally: a small program on the office PC reads vouchers from TallyPrime (XML/ODBC) and posts them to the server on a schedule.
+- Photos go to object storage; GPS and timestamps are captured on the phone the same way as here.
