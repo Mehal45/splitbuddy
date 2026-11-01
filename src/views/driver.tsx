@@ -13,6 +13,7 @@ import { locQty, logAudit, makePayment, payParts, payStatus, priceFor, submitDel
 import { custName, dayKey, distanceKm, fmtDate, fmtTime, rupees } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
+import { uploadDataUrl } from "@/lib/live/files";
 import { useLookups, useStore } from "@/lib/store";
 import type { Customer, GeoPoint, SizeQty } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -147,7 +148,7 @@ function CustomerPicker({ onPick }: { onPick: (c: Customer) => void }) {
 }
 
 export function NewDeliveryView() {
-  const { db, stock, act, balances } = useStore();
+  const { db, stock, act, balances, live } = useStore();
   const sizes = useSizes();
   const actor = useActorId();
   const { driver, truckId } = useDriver();
@@ -219,13 +220,21 @@ export function NewDeliveryView() {
     finally { setBusyPhoto(false); }
   };
 
-  const submit = () => {
-    if (!customer || !gps || !photo) return;
+  const [saving, setSaving] = React.useState(false);
+  const submit = async () => {
+    if (!customer || !gps || !photo || saving) return;
     const clean = (q: SizeQty) => Object.fromEntries(Object.entries(q).filter(([, n]) => n > 0));
-    const ok = act((d) => {
+    setSaving(true);
+    const ok = await act((d) => {
       const del = submitDelivery(d, { ts: new Date().toISOString(), truckId, driverId: driver.id, customerId: customer.id, full: clean(full), empty: clean(empty), payment: makePayment(cash, upi), photo, gps, userId: actor });
       logAudit(d, actor, "delivery_submitted", `${del.no} to ${custName(customer)}, bill ${rupees(value)}, collected ${payLabel(del.payment)}${gps.mocked ? " (mock GPS)" : ""}`);
-    }, "Delivery saved. Waiting for warehouse approval.");
+    }, "Delivery saved. Waiting for warehouse approval.", async (sb) => {
+      if (!photo.startsWith("data:image/jpeg")) throw new Error("Take a real photo of the signed acknowledgement.");
+      const path = await uploadDataUrl(sb, "deliveries", photo);
+      const { error } = await sb.rpc("submit_delivery", { p_customer: customer.id, p_full: clean(full), p_empty: clean(empty), p_payment: makePayment(cash, upi), p_photo: path, p_gps: gps });
+      if (error) throw error;
+    });
+    setSaving(false);
     if (ok) navigate("/");
   };
 
@@ -328,7 +337,7 @@ export function NewDeliveryView() {
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" size="xl" className="h-20 flex-col gap-1" onClick={() => camRef.current?.click()} disabled={busyPhoto}>{busyPhoto ? <Loader2 className="animate-spin" /> : <Camera className="size-6" />} Take photo</Button>
             <Button type="button" size="xl" variant="outline" className="h-20 flex-col gap-1" onClick={() => fileRef.current?.click()} disabled={busyPhoto}><ImageIcon className="size-6" /> From gallery</Button>
-            <Button type="button" variant="link" className="col-span-2" onClick={() => setPhoto(`ph:${Math.ceil(Math.random() * 6)}`)}>No camera? Use a sample photo for the demo</Button>
+            {!live && <Button type="button" variant="link" className="col-span-2" onClick={() => setPhoto(`ph:${Math.ceil(Math.random() * 6)}`)}>No camera? Use a sample photo for the demo</Button>}
           </div>
         )}
       </section>
@@ -348,7 +357,7 @@ export function NewDeliveryView() {
       {short.length > 0 && <p className="text-sm font-medium text-destructive">Not enough full cylinders on your truck for {short.map((s) => s.label).join(", ")}.</p>}
       {/* Plain button at the end of the form (not floating over the content) */}
       <div className="pt-2">
-        <Button size="xl" variant="success" className="h-16 w-full text-lg" disabled={!canSubmit} onClick={submit}><CheckCircle2 className="size-6" /> Submit delivery</Button>
+        <Button size="xl" variant="success" className="h-16 w-full text-lg" disabled={!canSubmit || saving} onClick={submit}>{saving ? <Loader2 className="size-6 animate-spin" /> : <CheckCircle2 className="size-6" />} Submit delivery</Button>
         {!photo && <p className="mt-2 text-center text-xs text-muted-foreground">Add the acknowledgement photo to submit</p>}
       </div>
     </div>

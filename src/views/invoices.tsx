@@ -16,7 +16,8 @@ import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
 import { computeTotals, lineBreakup } from "@/lib/gst";
 import { amountInWords, useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
-import { useLookups, useStore } from "@/lib/store";
+import { uploadDataUrl } from "@/lib/live/files";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import type { Invoice, InvoiceLine, SizeQty } from "@/lib/types";
 
 export function sourceBadge(src: Invoice["source"]) {
@@ -160,16 +161,20 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const bad = sizes.some((s) => (empties[s.id] ?? 0) > locQty(stock, WH, s.id, "empty") || (defective[s.id] ?? 0) > locQty(stock, WH, s.id, "defective"));
   const any = Object.values(full).some((q) => q > 0) || Object.values(empties).some((q) => q > 0);
 
-  const save = () => {
+  const save = async () => {
     const clean = (q: SizeQty) => Object.fromEntries(Object.entries(q).filter(([, n]) => n > 0));
-    const ok = act((d) => {
+    const ok = await act((d) => {
       const inv = createPurchase(d, { date: dayKey(), ts: new Date().toISOString(), plantId, full: clean(full), emptiesBack: clean(empties), defectiveBack: clean(defective), userId: actor, source: "app" });
       logAudit(d, actor, "purchase", `Plant receipt ${inv.no} from ${plant.name}: ${rupees(inv.total)}`);
       for (const r of receipts) {
         const att = attachToInvoice(d, inv.id, { ...r, uploadedBy: actor, ts: new Date().toISOString() });
         logAudit(d, actor, "receipt_attached", `${att.name} on ${inv.no}`);
       }
-    }, receipts.length ? `Stock receipt saved with ${receipts.length} attached ${receipts.length === 1 ? "file" : "files"}.` : "Stock receipt saved. Warehouse stock updated.");
+    }, receipts.length ? `Stock receipt saved with ${receipts.length} attached ${receipts.length === 1 ? "file" : "files"}.` : "Stock receipt saved. Warehouse stock updated.", async (sb) => {
+      const files = [];
+      for (const r of receipts) files.push({ name: r.name, kind: r.kind, bytes: r.bytes, path: await uploadDataUrl(sb, "receipts", r.dataUrl) });
+      await rpc("create_purchase", { p_plant: plantId, p_full: clean(full), p_empties: clean(empties), p_defective: clean(defective), p_testing: {}, p_date: dayKey(), p_attachments: files })(sb);
+    });
     if (ok) onOpenChange(false);
   };
 

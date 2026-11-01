@@ -45,14 +45,22 @@ npm run dev
 
 Open http://localhost:3000. To test the driver screen on a phone, open `http://<your-computer-ip>:3000` on the same Wi-Fi. The browser only allows camera and GPS on `https` or `localhost`; otherwise the app uses the gallery picker and a mock GPS point.
 
-Production build (static files in `out/`):
+Production build:
 
 ```bash
 npm run build
-npm start        # serves the built app at http://localhost:3000
+npm start              # http://localhost:3000 (live version if .env.local has Supabase keys)
+npm run build:static   # browser-only demo as plain files in out/
+npm run start:static   # serves out/ at http://localhost:3000
 ```
 
-## Deploy free on Vercel
+## Live version (shared database)
+
+With Supabase keys set, the app becomes the real multi-user version: one online database,
+logins with mobile number + password, and every rule checked inside the database.
+**Step-by-step setup: [DEPLOY.md](DEPLOY.md).** Database code: `supabase/migrations/`.
+
+## Deploy the demo free on Vercel
 
 1. Push this repository to GitHub (already done if you are reading this there).
 2. Go to https://vercel.com, sign up with GitHub (the Hobby plan is free).
@@ -67,11 +75,12 @@ Every push to the branch redeploys automatically. Each visitor gets their own co
 | Command | What it does |
 |---|---|
 | `npm run dev` | Development server |
-| `npm run build` | Static export to `out/` |
+| `npm run build` | Next.js build for Vercel / `npm start` (live version when keys are set) |
+| `npm run build:static` | Browser-only demo as static files in `out/` (used by the tests) |
 | `npm run lint` | ESLint |
 | `npm run check:data` | Builds the mock data at several times of day and prints stock and alert checks |
-| `npm run test:e2e` | After a build: empty start and setup, then driver → approval → load sheet → end of day → Tally → reports → clear data, plus attack cases |
-| `npm run preview:relative` | After a build: copies `out/` to `preview/` with relative asset paths (host under any sub-path) |
+| `npm run test:e2e` | After `build:static`: empty start and setup, then driver → approval → load sheet → end of day → Tally → reports → clear data, plus attack cases |
+| `npm run preview:relative` | After `build:static`: copies `out/` to `preview/` with relative asset paths (host under any sub-path) |
 
 ## Where things are
 

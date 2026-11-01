@@ -13,6 +13,7 @@ import { Logo, ThemeToggle } from "@/components/app/shell";
 import { clearFailures, DEFAULT_OWNER_PIN, formatWait, isValidMobile, lockRemaining, normalizePhone, recordFailure } from "@/lib/auth";
 import { custName } from "@/lib/format";
 import { navigate } from "@/lib/router";
+import { LIVE, loginEmail, setRemember, supabase } from "@/lib/live/client";
 import { useStore } from "@/lib/store";
 import type { Role, User as AppUser } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -42,7 +43,7 @@ function Frame({ children, wide = false }: { children: React.ReactNode; wide?: b
         <h1 className="mt-4 text-center text-3xl font-semibold tracking-tight">{db.settings.agencyName}</h1>
         <p className="mt-1 text-center text-muted-foreground">{db.settings.agencyTagline}</p>
         <div className="mt-8 w-full">{children}</div>
-        <p className="mt-8 text-center text-xs text-muted-foreground">{db.sample ? "Demo version · sample data stored in this browser" : "Demo version · data is stored in this browser only"}</p>
+        {!LIVE && <p className="mt-8 text-center text-xs text-muted-foreground">{db.sample ? "Demo version · sample data stored in this browser" : "Demo version · data is stored in this browser only"}</p>}
       </div>
     </div>
   );
@@ -350,8 +351,77 @@ export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
   );
 }
 
+// ---------------------------------------------------------------- live sign-in
+
+const LIVE_COPY: Record<string, { title: string; icon: React.ElementType; idLabel: string; placeholder: string }> = {
+  owner: { title: "Owner login", icon: Crown, idLabel: "E-mail or mobile number", placeholder: "you@example.com" },
+  staff: { title: "Staff login", icon: Warehouse, idLabel: "Mobile number", placeholder: "98450 12345" },
+  driver: { title: "Driver login", icon: Truck, idLabel: "Mobile number", placeholder: "98450 12345" },
+  customer: { title: "Customer login", icon: User, idLabel: "Mobile number", placeholder: "98450 12345" },
+};
+
+function LiveLogin({ page }: { page: keyof typeof LIVE_COPY }) {
+  const copy = LIVE_COPY[page];
+  const scope = `live-${page}`;
+  const lock = useLock(scope);
+  const [id, setId] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [keep, setKeep] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const Icon = copy.icon;
+  const idOk = id.includes("@") ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id.trim()) : isValidMobile(id);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (lock.left || busy || !idOk || !password) return;
+    setBusy(true); setError("");
+    setRemember(keep); // decides where the session is kept, before it is created
+    const { error: err } = await supabase().auth.signInWithPassword({ email: loginEmail(id), password });
+    setBusy(false);
+    if (err) {
+      const left = recordFailure(scope);
+      lock.refresh();
+      setError(/network|fetch/i.test(err.message) ? "No internet connection. Please try again." : left ? `Wrong number or password. ${left} ${left === 1 ? "try" : "tries"} left.` : "Too many wrong tries. Please wait before trying again.");
+      return;
+    }
+    clearFailures(scope);
+    supabase().rpc("log_event", { p_action: "login", p_detail: keep ? "Signed in (kept signed in)" : "Signed in (this tab only)" }).then(() => {});
+    navigate("/");
+  };
+
+  return (
+    <Frame>
+      <Card>
+        <CardContent className="grid gap-5">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-primary/10 p-2.5 text-primary"><Icon className="size-5" /></div>
+            <div><h2 className="text-lg font-semibold">{copy.title}</h2><p className="text-sm text-muted-foreground">Sign in with the details the owner gave you.</p></div>
+          </div>
+          <form className="grid gap-4" onSubmit={submit}>
+            <div className="grid gap-1.5">
+              <Label htmlFor="live-id">{copy.idLabel}</Label>
+              <Input id="live-id" autoComplete="username" inputMode={page === "owner" ? "email" : "tel"} placeholder={copy.placeholder} maxLength={80} value={id} onChange={(e) => setId(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="live-pw">Password</Label>
+              <Input id="live-pw" type="password" autoComplete="current-password" maxLength={72} value={password} onChange={(e) => setPassword(e.target.value)} />
+            </div>
+            <KeepSignedIn checked={keep} onChange={setKeep} />
+            {error && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
+            {lock.left > 0 && <p className="text-sm text-muted-foreground">Locked for {formatWait(lock.left)} after too many wrong tries.</p>}
+            <Button type="submit" size="lg" disabled={!idOk || !password || busy || lock.left > 0}>{busy ? "Signing in…" : "Sign in"} <ArrowRight /></Button>
+            <p className="text-center text-xs text-muted-foreground">Forgot your password? Ask the owner to set a new one.</p>
+          </form>
+        </CardContent>
+      </Card>
+    </Frame>
+  );
+}
+
 export function LoginRouter({ path }: { path: string }) {
   const base = path.split("?")[0].split("/").filter(Boolean)[0];
+  if (LIVE) return <LiveLogin page={base === "staff" ? "staff" : base === "driver" ? "driver" : base === "customer" || base === "me" ? "customer" : "owner"} />;
   if (base === "staff") return <PhoneLogin role="warehouse" />;
   if (base === "driver") return <PhoneLogin role="driver" />;
   if (base === "customer" || base === "me") return <PhoneLogin role="customer" />;

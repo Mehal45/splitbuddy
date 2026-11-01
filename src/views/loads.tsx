@@ -14,7 +14,7 @@ import { EmptyState, PageHeader, PhoneRow, qtySummary, Stepper } from "@/compone
 import { createLoadSheet, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
-import { useLookups, useStore } from "@/lib/store";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import type { SizeQty } from "@/lib/types";
 
 export function LoadSheetsView() {
@@ -137,12 +137,12 @@ function NewLoadSheetDialog({ open, onOpenChange }: { open: boolean; onOpenChang
   const over = sizes.filter((s) => (lines[s.id] ?? 0) > locQty(stock, WH, s.id, "full"));
   const truck = db.trucks.find((t) => t.id === truckId);
 
-  const save = () => {
+  const save = async () => {
     const clean = Object.fromEntries(Object.entries(lines).filter(([, q]) => q > 0));
-    const ok = act((d) => {
+    const ok = await act((d) => {
       createLoadSheet(d, { date: dayKey(), ts: new Date().toISOString(), truckId, driverId, lines: clean, userId: actor });
       logAudit(d, actor, "load_sheet", `Loaded ${total} full cylinders on ${truck?.regNo} for ${d.drivers.find((x) => x.id === driverId)?.name}`);
-    }, `Loaded ${total} cylinders on ${truck?.regNo}`);
+    }, `Loaded ${total} cylinders on ${truck?.regNo}`, rpc("create_load_sheet", { p_truck: truckId, p_lines: clean }));
     if (ok) onOpenChange(false);
   };
 

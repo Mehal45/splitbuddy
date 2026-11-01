@@ -6,7 +6,10 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { REMEMBER_MS, SESSION_MS } from "./auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeStock, logAudit, type StockMap } from "./engine";
+import { errorText, LIVE, supabase } from "./live/client";
+import { loadAll } from "./live/load";
 import { buildEmpty, buildSeed, DB_VERSION } from "./seed";
 import { computeAlerts, customerBalances, type Alert, type CustomerBalance } from "./selectors";
 import type { AuditAction, DB, Role, User } from "./types";
@@ -55,7 +58,14 @@ interface StoreValue {
   balances: Record<string, CustomerBalance>;
   alerts: Alert[];
   now: number;
-  act: (fn: (draft: DB) => void, success?: string) => boolean;
+  /**
+   * Run an action. Demo: `fn` changes a copy of the browser database. Live: `remote`
+   * calls the checked database function on Supabase, then the data is reloaded.
+   * Resolves to true when it worked; errors are shown as a message.
+   */
+  act: (fn: (draft: DB) => void, success?: string, remote?: Remote) => Promise<boolean>;
+  live: boolean;
+  reload: () => Promise<void>;
   clearAll: (actorId: string) => void;
   loadSample: (actorId: string) => void;
   session: Session | null;
@@ -67,6 +77,14 @@ interface StoreValue {
   user: User | null; // effective user (after "view as")
   role: Role | null;
 }
+
+export type Remote = (sb: SupabaseClient) => Promise<unknown>;
+/** Remote action that calls one database function and fails with its message. */
+export const rpc = (fn: string, args: Record<string, unknown>): Remote => async (sb) => {
+  const { data, error } = await sb.rpc(fn, args);
+  if (error) throw error;
+  return data;
+};
 
 const StoreCtx = React.createContext<StoreValue | null>(null);
 
@@ -126,6 +144,10 @@ function loadDB(): { db: DB; recovered: boolean } {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  return LIVE ? <LiveStoreProvider>{children}</LiveStoreProvider> : <DemoStoreProvider>{children}</DemoStoreProvider>;
+}
+
+function DemoStoreProvider({ children }: { children: React.ReactNode }) {
   const [db, setDb] = React.useState<DB | null>(null);
   const [session, setSession] = React.useState<Session | null>(null);
   const [now, setNow] = React.useState(() => Date.now());
@@ -154,7 +176,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => { clearInterval(t); window.removeEventListener("storage", onStorage); };
   }, []);
 
-  const act = React.useCallback((fn: (draft: DB) => void, success?: string) => {
+  const act = React.useCallback(async (fn: (draft: DB) => void, success?: string) => {
     const current = currentDb;
     if (!current) return false;
     const draft = structuredClone(current);
@@ -221,7 +243,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const viewed = realUser?.role === "owner" && session?.viewAsUserId ? db.users.find((u) => u.id === session.viewAsUserId) ?? null : null;
     const user = viewed ?? realUser;
     return {
-      db, stock, balances, alerts, now, act, clearAll, loadSample, session,
+      db, stock, balances, alerts, now, act, clearAll, loadSample, session, live: false, reload: async () => {},
       login: (userId, remember = true) => {
         logEvent(userId, "login", remember ? "Signed in (kept signed in)" : "Signed in (this tab only)");
         saveSession({ userId, remember, expiresAt: Date.now() + (remember ? REMEMBER_MS : SESSION_MS) });
@@ -248,6 +270,114 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           <p className="text-sm">Loading demo data…</p>
         </div>
       </div>
+    );
+  }
+  return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
+}
+
+// ---------------------------------------------------------------- live (Supabase)
+
+function Splash({ text, children }: { text: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center p-6 text-center text-muted-foreground">
+      <div className="flex max-w-sm flex-col items-center gap-3">
+        {!children && <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />}
+        <p className="text-sm">{text}</p>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function LiveStoreProvider({ children }: { children: React.ReactNode }) {
+  const sb = React.useMemo(() => supabase(), []);
+  const [authId, setAuthId] = React.useState<string | null | undefined>(undefined); // undefined = still checking
+  const [db, setDb] = React.useState<DB | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [viewAsId, setViewAsId] = React.useState<string | undefined>(undefined);
+  const [now, setNow] = React.useState(() => Date.now());
+  const loading = React.useRef<Promise<void> | null>(null);
+
+  const reload = React.useCallback(async () => {
+    if (loading.current) return loading.current; // one load at a time
+    loading.current = (async () => {
+      try { setDb(await loadAll(sb)); setLoadError(null); setNow(Date.now()); }
+      catch (e) { setLoadError(errorText(e)); }
+      finally { loading.current = null; }
+    })();
+    return loading.current;
+  }, [sb]);
+
+  React.useEffect(() => {
+    sb.auth.getSession().then(({ data }) => setAuthId(data.session?.user.id ?? null));
+    const { data: sub } = sb.auth.onAuthStateChange((_e, sess) => setAuthId(sess?.user.id ?? null));
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => { sub.subscription.unsubscribe(); clearInterval(t); };
+  }, [sb]);
+
+  React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- signed out: drop the previous person's data at once
+    if (!authId) { setDb(null); setViewAsId(undefined); return; }
+    reload();
+    // Anything saved by anyone (a delivery, an order, an approval) shows up here within a second
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ch = sb.channel("live-changes")
+      .on("postgres_changes", { event: "*", schema: "public" }, () => { clearTimeout(timer); timer = setTimeout(reload, 700); })
+      .subscribe();
+    const onFocus = () => reload();
+    window.addEventListener("focus", onFocus);
+    return () => { clearTimeout(timer); sb.removeChannel(ch); window.removeEventListener("focus", onFocus); };
+  }, [authId, sb, reload]);
+
+  const act = React.useCallback(async (_fn: (draft: DB) => void, success?: string, remote?: Remote) => {
+    if (!remote) { toast.error("This isn't available in the live version yet."); return false; }
+    try { await remote(sb); }
+    catch (e) { toast.error(errorText(e)); return false; }
+    if (success) toast.success(success);
+    await reload();
+    return true;
+  }, [sb, reload]);
+
+  const logEvent = React.useCallback((_userId: string, action: AuditAction, detail: string) => {
+    if (action === "login" || action === "logout" || action === "view_as") sb.rpc("log_event", { p_action: action, p_detail: detail }).then(() => {});
+  }, [sb]);
+
+  const value = React.useMemo<StoreValue | null>(() => {
+    const base = db ?? buildEmpty();
+    const stock = computeStock(base.movements);
+    const balances = customerBalances(base);
+    const alerts = computeAlerts(base, stock, balances, now);
+    const realUser = authId ? base.users.find((u) => u.id === authId) ?? null : null;
+    const viewed = realUser?.role === "owner" && viewAsId ? base.users.find((u) => u.id === viewAsId) ?? null : null;
+    const user = viewed ?? realUser;
+    const noop = () => toast.info("Not available in the live version.");
+    return {
+      db: base, stock, balances, alerts, now, act, live: true, reload,
+      clearAll: noop, loadSample: noop,
+      session: authId ? { userId: authId, viewAsUserId: viewAsId, remember: true, expiresAt: now + REMEMBER_MS } : null,
+      login: () => {},
+      logout: () => { logEvent("", "logout", "Signed out"); setViewAsId(undefined); sb.auth.signOut().then(() => { setDb(null); }); },
+      logEvent,
+      viewAs: (userId) => {
+        if (realUser?.role !== "owner") return;
+        if (userId) logEvent("", "view_as", `Viewed the app as ${base.users.find((u) => u.id === userId)?.name ?? userId}`);
+        setViewAsId(userId);
+      },
+      realUser, user, role: user?.role ?? null,
+    };
+  }, [db, authId, viewAsId, now, act, reload, logEvent, sb]);
+
+  if (authId === undefined) return <Splash text="Starting…" />;
+  if (authId && !db && !loadError) return <Splash text="Loading your data…" />;
+  if (authId && loadError && !db) {
+    return <Splash text={`Couldn't load data: ${loadError}`}><button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => reload()}>Try again</button></Splash>;
+  }
+  const hasProfile = Boolean(authId && db?.users.some((u) => u.id === authId && u.active !== false));
+  if (authId && db && !hasProfile) {
+    return (
+      <Splash text="This login isn't set up for the app yet, or it was turned off. Ask the owner to add you.">
+        <button className="rounded-md border px-3 py-1.5 text-sm" onClick={() => sb.auth.signOut()}>Sign out</button>
+      </Splash>
     );
   }
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;

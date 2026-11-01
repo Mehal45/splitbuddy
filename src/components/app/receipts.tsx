@@ -12,7 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { attachToInvoice, isSafeAttachment, logAudit, MAX_RECEIPT_BYTES, MAX_RECEIPTS_PER_INVOICE, removeAttachment } from "@/lib/engine";
 import { fmtDateTime } from "@/lib/format";
 import { useActorId } from "@/lib/hooks";
-import { useLookups, useStore } from "@/lib/store";
+import { signedUrl, uploadDataUrl, useFileUrl } from "@/lib/live/files";
+import { cn } from "@/lib/utils";
+import { rpc, useLookups, useStore } from "@/lib/store";
 import type { Attachment, Invoice } from "@/lib/types";
 
 export type PendingReceipt = Omit<Attachment, "id" | "uploadedBy" | "ts">;
@@ -134,7 +136,21 @@ export function ReceiptPicker({ value, onChange, title = "Plant receipt", hint =
   );
 }
 
+/** A stored photo: from the private bucket (live) or embedded data (demo). */
+export function FileImg({ a, className }: { a: Attachment; className?: string }) {
+  const remote = useFileUrl(a.path);
+  const src = a.path ? remote : a.dataUrl;
+  if (!src) return <span className={cn("block animate-pulse bg-muted", className)} />;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt={a.name} className={className} />;
+}
+
 export function openPdf(a: Attachment) {
+  if (a.path) {
+    const w = window.open("", "_blank");
+    signedUrl(a.path).then((u) => { if (w) w.location.href = u; else window.location.assign(u); }).catch(() => { w?.close(); toast.error("Couldn't open that file."); });
+    return;
+  }
   const bin = atob(a.dataUrl.slice(a.dataUrl.indexOf(",") + 1));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -157,7 +173,7 @@ export function InvoiceReceipts({ invoice }: { invoice: Invoice }) {
   const [viewing, setViewing] = React.useState<Attachment | null>(null);
   const [removing, setRemoving] = React.useState<Attachment | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const list = (invoice.attachments ?? []).filter(isSafeAttachment);
+  const list = (invoice.attachments ?? []).filter((a) => a.path || isSafeAttachment(a));
   const canAdd = role === "owner" || role === "warehouse";
   const canRemove = role === "owner";
   const { inputs, pickFile, takePhoto } = useFilePickers(async (files) => {
@@ -170,7 +186,9 @@ export function InvoiceReceipts({ invoice }: { invoice: Invoice }) {
           const att = attachToInvoice(d, invoice.id, { ...r, uploadedBy: actor, ts: new Date().toISOString() });
           logAudit(d, actor, "receipt_attached", `${att.name} (${sizeText(att.bytes)}) on ${invoice.no}`);
         }
-      }, ready.length === 1 ? "Receipt uploaded" : `${ready.length} receipts uploaded`);
+      }, ready.length === 1 ? "Receipt uploaded" : `${ready.length} receipts uploaded`, async (sb) => {
+        for (const r of ready) await rpc("attach_receipt", { p_invoice: invoice.id, p_file: { name: r.name, kind: r.kind, bytes: r.bytes, path: await uploadDataUrl(sb, "receipts", r.dataUrl) } })(sb);
+      });
     } finally { setBusy(false); }
   });
 
@@ -196,8 +214,7 @@ export function InvoiceReceipts({ invoice }: { invoice: Invoice }) {
               <button type="button" className="flex h-36 items-center justify-center overflow-hidden rounded bg-muted" onClick={() => (a.kind === "pdf" ? openPdf(a) : setViewing(a))} aria-label={`Open ${a.name}`}>
                 {a.kind === "pdf"
                   ? <span className="flex flex-col items-center gap-1 text-sm text-muted-foreground"><FileText className="size-10" /> Open PDF</span>
-                  // eslint-disable-next-line @next/next/no-img-element
-                  : <img src={a.dataUrl} alt={a.name} className="size-full object-cover" />}
+                  : <FileImg a={a} className="size-full object-cover" />}
               </button>
               <div className="flex items-start justify-between gap-2 text-xs">
                 <div className="min-w-0">
@@ -214,8 +231,7 @@ export function InvoiceReceipts({ invoice }: { invoice: Invoice }) {
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader><DialogTitle>{viewing?.name}</DialogTitle><DialogDescription>Uploaded by {viewing && (L.user.get(viewing.uploadedBy)?.name ?? "Unknown")} · {viewing && fmtDateTime(viewing.ts)}</DialogDescription></DialogHeader>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {viewing && <img src={viewing.dataUrl} alt={viewing.name} className="max-h-[70dvh] w-full rounded-md border object-contain" />}
+          {viewing && <FileImg a={viewing} className="max-h-[70dvh] w-full rounded-md border object-contain" />}
         </DialogContent>
       </Dialog>
 
@@ -226,7 +242,10 @@ export function InvoiceReceipts({ invoice }: { invoice: Invoice }) {
             <Button variant="outline" onClick={() => setRemoving(null)}>Cancel</Button>
             <Button variant="destructive" onClick={() => {
               const target = removing!;
-              act((d) => { removeAttachment(d, invoice.id, target.id); logAudit(d, actor, "receipt_removed", `${target.name} from ${invoice.no}`); }, "Receipt removed");
+              act((d) => { removeAttachment(d, invoice.id, target.id); logAudit(d, actor, "receipt_removed", `${target.name} from ${invoice.no}`); }, "Receipt removed", async (sb) => {
+                const path = await rpc("remove_attachment", { p_id: target.id })(sb);
+                if (typeof path === "string") await sb.storage.from("files").remove([path]);
+              });
               setRemoving(null);
             }}>Remove</Button>
           </DialogFooter>

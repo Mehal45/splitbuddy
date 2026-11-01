@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { LIVE } from "@/lib/live/client";
 import { Check, CheckCircle2, Trash2, Laptop, Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { custName, dayKey, fmtDateTime, rupees, timeAgo } from "@/lib/format";
 import { useActorId } from "@/lib/hooks";
 import { setUiStyle, useUiStyle, type UiStyle } from "@/lib/ui-style";
 import { settingsErrors } from "@/lib/validate";
-import { useStore } from "@/lib/store";
+import { rpc, useStore } from "@/lib/store";
 import type { CylinderSize, DB, Settings, SyncLogEntry } from "@/lib/types";
 
 // ---------- Tally sync (mock) ----------
@@ -67,7 +68,7 @@ export function TallyView() {
   const sync = async () => {
     for (let i = 0; i < STEPS.length; i++) { setStep(i); await new Promise((r) => setTimeout(r, 800)); }
     let n = 0;
-    const ok = act((d) => { n = runMockSync(d, actor); logAudit(d, actor, "tally_sync", `Imported ${n} vouchers from Tally (demo)`); });
+    const ok = await act((d) => { n = runMockSync(d, actor); logAudit(d, actor, "tally_sync", `Imported ${n} vouchers from Tally (demo)`); });
     setStep(-1);
     if (ok) toast.success(`Imported ${n} vouchers from Tally. Stock and balances updated.`);
   };
@@ -176,7 +177,7 @@ export function SettingsView() {
     if ((s.ownerPin ?? "1234") !== (db.settings.ownerPin ?? "1234")) changed.push("owner PIN");
     if (JSON.stringify(s.sizes) !== JSON.stringify(db.settings.sizes)) changed.push("sizes/prices");
     if (s.pendingApprovalHours !== db.settings.pendingApprovalHours || s.emptiesTolerance !== db.settings.emptiesTolerance || s.gpsMaxDistanceKm !== db.settings.gpsMaxDistanceKm) changed.push("alert thresholds");
-    act((d) => { d.settings = s; logAudit(d, actor, "settings_changed", `Changed ${changed.join(", ") || "settings"}`); }, "Settings saved");
+    act((d) => { d.settings = s; logAudit(d, actor, "settings_changed", `Changed ${changed.join(", ") || "settings"}`); }, "Settings saved", rpc("update_settings", { p: s }));
   };
   const setSize = (i: number, patch: Partial<CylinderSize>) => setS({ ...s, sizes: s.sizes.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
   const numIn = (v: number | null, on: (n: number | null) => void, allowNull = false) => (
@@ -200,7 +201,7 @@ export function SettingsView() {
             <div className="grid gap-1.5"><Label>Tagline</Label><Input value={s.agencyTagline} onChange={(e) => setS({ ...s, agencyTagline: e.target.value })} /></div>
             <div className="grid gap-1.5"><Label>GSTIN</Label><Input className="font-mono" value={s.agencyGstin} onChange={(e) => setS({ ...s, agencyGstin: e.target.value.toUpperCase() })} /></div>
             <div className="grid gap-1.5"><Label>Address</Label><Input value={s.agencyAddress} onChange={(e) => setS({ ...s, agencyAddress: e.target.value })} /></div>
-            <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" type="password" autoComplete="new-password" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>
+            {!LIVE && <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" type="password" autoComplete="new-password" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>}
           </CardContent>
         </Card>
 
@@ -241,7 +242,7 @@ export function SettingsView() {
 
         <LookCard />
 
-        <Card className="border-destructive/40">
+        {!LIVE && <Card className="border-destructive/40">
           <CardHeader>
             <CardTitle>Data</CardTitle>
             <CardDescription>
@@ -260,7 +261,7 @@ export function SettingsView() {
               <Button variant="outline" className="w-fit" onClick={() => { setTyped(""); setConfirm("sample"); }}><RotateCcw /> Load sample data</Button>
             </div>
           </CardContent>
-        </Card>
+        </Card>}
       </div>
 
       <Dialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>

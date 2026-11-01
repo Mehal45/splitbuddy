@@ -49,6 +49,7 @@ export interface User {
   driverId?: string;
   customerId?: string;
   manager?: boolean; // warehouse manager: can also book expenses
+  active?: boolean; // live version: false = login turned off by the owner
 }
 
 export interface Driver {
@@ -159,6 +160,7 @@ export interface InvoiceLine {
 // A scanned or photographed supplier document (e.g. the plant's tax invoice /
 // delivery receipt) attached to a purchase.
 export interface Attachment {
+  path?: string; // live version: file in Supabase storage (dataUrl is then empty)
   id: string;
   name: string; // original file name, cleaned
   kind: "image" | "pdf";

@@ -16,7 +16,8 @@ import { useUiStyle } from "@/lib/ui-style";
 import { cn } from "@/lib/utils";
 import { StockGrid } from "./stock";
 import { netText } from "./expenses";
-import { AddTruckButton, StaffCard } from "./team";
+import { AddTruckButton, LoginsCard, StaffCard } from "./team";
+import { LIVE } from "@/lib/live/client";
 
 const ALERT_ICON: Record<AlertKind, React.ElementType> = { lowStock: PackageX, empties: AlertTriangle, credit: CreditCard, pending: ClipboardCheck, mismatch: Scale, gps: MapPinOff };
 
@@ -269,6 +270,7 @@ export function FleetView() {
         </CardContent>
       </Card>
       <StaffCard />
+      {LIVE && <LoginsCard />}
     </>
   );
 }

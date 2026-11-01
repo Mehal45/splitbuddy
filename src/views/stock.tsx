@@ -16,7 +16,7 @@ import { custName, dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { locLabel, useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
 import { customerHeld, stockTotals } from "@/lib/selectors";
-import { useLookups, useStore } from "@/lib/store";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import { CYL_STATES, STATE_LABEL, type CylState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -150,11 +150,11 @@ function ChangeStateDialog({ open, onOpenChange }: { open: boolean; onOpenChange
         <div className="grid gap-2"><Label htmlFor="note">Note</Label><Input id="note" maxLength={120} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Underweight on scale" /></div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={qty < 1 || qty > avail || from === to} onClick={() => {
-            const ok = act((d) => {
+          <Button disabled={qty < 1 || qty > avail || from === to} onClick={async () => {
+            const ok = await act((d) => {
               changeState(d, { ts: new Date().toISOString(), size, from, to, qty, userId: actor, note: note.trim().slice(0, 120) || undefined });
               logAudit(d, actor, "stock_state_change", `${qty} × ${size} kg: ${STATE_LABEL[from]} → ${STATE_LABEL[to]}${note.trim() ? ` (${note.trim().slice(0, 120)})` : ""}`);
-            }, `Moved ${qty} × ${size} kg from ${STATE_LABEL[from]} to ${STATE_LABEL[to]}`);
+            }, `Moved ${qty} × ${size} kg from ${STATE_LABEL[from]} to ${STATE_LABEL[to]}`, rpc("change_state", { p_size: size, p_from: from, p_to: to, p_qty: qty, p_note: note.trim().slice(0, 120) }));
             if (ok) { onOpenChange(false); setNote(""); setQty(1); }
           }}>Save</Button>
         </DialogFooter>
@@ -241,12 +241,12 @@ function OpeningStockButton() {
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState<Record<string, Partial<Record<CylState, number>>>>({});
   const total = Object.values(q).reduce((n, st) => n + Object.values(st).reduce((a, b) => a + (b ?? 0), 0), 0);
-  const save = () => {
+  const save = async () => {
     const lines = Object.fromEntries(Object.entries(q).map(([size, st]) => [size, Object.fromEntries(Object.entries(st).filter(([, n]) => (n ?? 0) > 0))]).filter(([, st]) => Object.keys(st).length));
-    const ok = act((d) => {
+    const ok = await act((d) => {
       const n = addOpeningStock(d, { ts: new Date().toISOString(), userId: actor, lines });
       logAudit(d, actor, "opening_stock", `Entered opening stock: ${n} cylinders at the warehouse`);
-    }, `Opening stock added: ${total} cylinders`);
+    }, `Opening stock added: ${total} cylinders`, rpc("add_opening_stock", { p_lines: lines }));
     if (ok) { setOpen(false); setQ({}); }
   };
   return (

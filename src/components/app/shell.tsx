@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, Box, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
-  Receipt, RefreshCw, Scale, Settings, ShoppingCart, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
+  KeyRound, Receipt, RefreshCw, Scale, Settings, ShoppingCart, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,9 @@ import { setUiStyle, useUiStyle } from "@/lib/ui-style";
 import { useStore } from "@/lib/store";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { errorText, LIVE, supabase } from "@/lib/live/client";
+import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 import { NewOrderPopup } from "@/views/orders";
 
 export interface NavItem { href: string; label: string; icon: React.ElementType; badge?: "pending" | "alerts" | "orders"; managerOnly?: boolean }
@@ -41,7 +44,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/fleet", label: "Trucks & drivers", icon: Truck },
     { href: "/movements", label: "Movement log", icon: History },
     { href: "/reports", label: "Reports", icon: FileBarChart },
-    { href: "/tally", label: "Tally sync", icon: RefreshCw },
+    ...(LIVE ? [] : [{ href: "/tally", label: "Tally sync", icon: RefreshCw }]),
     { href: "/activity", label: "Activity log", icon: ShieldCheck },
     { href: "/settings", label: "Settings", icon: Settings },
   ],
@@ -230,6 +233,7 @@ function ViewAsBanner() {
 function UserMenu() {
   const { realUser, user, logout } = useStore();
   const [viewOpen, setViewOpen] = React.useState(false);
+  const [pwOpen, setPwOpen] = React.useState(false);
   if (!user) return null;
   const initials = user.name.split(" ").map((p) => p[0]).slice(0, 2).join("");
   return (
@@ -248,9 +252,11 @@ function UserMenu() {
           <DropdownMenuLabel>{realUser?.name}<span className="block text-xs font-normal text-muted-foreground">{userRoleLabel(realUser!)}</span></DropdownMenuLabel>
           <DropdownMenuSeparator />
           {realUser?.role === "owner" && <DropdownMenuItem onClick={() => setViewOpen(true)}><Eye /> View as another role…</DropdownMenuItem>}
+          {LIVE && <DropdownMenuItem onClick={() => setPwOpen(true)}><KeyRound /> Change password</DropdownMenuItem>}
           <DropdownMenuItem onClick={() => { const home = LOGIN_PATH[realUser!.role]; logout(); navigate(home); }}><LogOut /> Log out</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      {LIVE && <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />}
       <ViewAsDialog open={viewOpen} onOpenChange={setViewOpen} />
     </>
   );
@@ -282,7 +288,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
         <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background shadow-sm">
           <header className="app-header app-header-mobile no-print sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur">
             <Brand compact />
-            <div className="flex items-center gap-1"><Badge variant="outline" className="text-muted-foreground">Demo</Badge><ThemeToggle /><UserMenu /></div>
+            <div className="flex items-center gap-1">{!LIVE && <Badge variant="outline" className="text-muted-foreground">Demo</Badge>}<ThemeToggle /><UserMenu /></div>
           </header>
           <main className="min-w-0 flex-1 px-4 pt-4 pb-28">{children}</main>
           <nav className="no-print fixed inset-x-0 bottom-0 z-30 mx-auto grid max-w-md grid-cols-3 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
@@ -325,7 +331,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
             </Sheet>
             <div className="lg:hidden"><Brand compact /></div>
             <div className="ml-auto flex items-center gap-1">
-              <Badge variant="outline" className="mr-1 hidden text-muted-foreground sm:inline-flex">{db.sample ? "Demo · sample data" : "Demo"}</Badge>
+              {!LIVE && <Badge variant="outline" className="mr-1 hidden text-muted-foreground sm:inline-flex">{db.sample ? "Demo · sample data" : "Demo"}</Badge>}
               {role === "owner" && <AlertBell />}
               <ThemeToggle />
               <UserMenu />
@@ -391,5 +397,33 @@ function AlertBell() {
         {alerts.length > 0 && <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-semibold text-white">{alerts.length}</span>}
       </Link>
     </Button>
+  );
+}
+
+function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const [pw, setPw] = React.useState("");
+  const [pw2, setPw2] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const err = pw && pw.length < 8 ? "At least 8 characters." : pw2 && pw !== pw2 ? "The two passwords don't match." : "";
+  const save = async () => {
+    setBusy(true);
+    const { error } = await supabase().auth.updateUser({ password: pw });
+    setBusy(false);
+    if (error) { toast.error(errorText(error)); return; }
+    toast.success("Password changed");
+    setPw(""); setPw2(""); onOpenChange(false);
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader><DialogTitle>Change password</DialogTitle><DialogDescription>Use at least 8 characters. Don&apos;t reuse a password from another site.</DialogDescription></DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-1.5"><Label htmlFor="np1">New password</Label><Input id="np1" type="password" autoComplete="new-password" maxLength={72} value={pw} onChange={(e) => setPw(e.target.value)} /></div>
+          <div className="grid gap-1.5"><Label htmlFor="np2">Type it again</Label><Input id="np2" type="password" autoComplete="new-password" maxLength={72} value={pw2} onChange={(e) => setPw2(e.target.value)} /></div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+        </div>
+        <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!pw || pw !== pw2 || pw.length < 8 || busy} onClick={save}>Save</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -14,7 +14,7 @@ import { approveDelivery, logAudit, priceFor, rejectDelivery } from "@/lib/engin
 import { custName, dayKey, distanceKm, fmtDateTime, hoursSince, rupees, timeAgo } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
-import { useLookups, useStore } from "@/lib/store";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import type { Delivery } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -109,7 +109,7 @@ export function ApprovalCard({ d, readOnly = false }: { d: Delivery; readOnly?: 
           {d.status !== "pending" && d.reviewedBy && <p className="text-xs text-muted-foreground">Reviewed by {L.user.get(d.reviewedBy)?.name} on {fmtDateTime(d.reviewedAt!)}</p>}
           {!readOnly && d.status === "pending" && (
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button variant="success" size="lg" onClick={() => act((db2) => { approveDelivery(db2, d.id, actor, new Date().toISOString()); logAudit(db2, actor, "delivery_approved", `${d.no} for ${custName(c)}`); }, `Approved ${d.no}: invoice created and balances updated`)}><Check /> Approve</Button>
+              <Button variant="success" size="lg" onClick={() => act((db2) => { approveDelivery(db2, d.id, actor, new Date().toISOString()); logAudit(db2, actor, "delivery_approved", `${d.no} for ${custName(c)}`); }, `Approved ${d.no}: invoice created and balances updated`, rpc("approve_delivery", { p_id: d.id }))}><Check /> Approve</Button>
               <Button variant="outline" size="lg" className="text-destructive" onClick={() => setRejectOpen(true)}><X /> Reject</Button>
             </div>
           )}
@@ -120,7 +120,7 @@ export function ApprovalCard({ d, readOnly = false }: { d: Delivery; readOnly?: 
           {overdue && <p className="text-xs font-medium text-warning-foreground">Waiting longer than {db.settings.pendingApprovalHours} hours.</p>}
         </div>
       </CardContent>
-      <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} onConfirm={(reason) => act((db2) => { rejectDelivery(db2, d.id, actor, reason, new Date().toISOString()); logAudit(db2, actor, "delivery_rejected", `${d.no} for ${custName(c)}: ${reason}`); }, `Rejected ${d.no}. Stock moved back to the truck.`)} />
+      <RejectDialog open={rejectOpen} onOpenChange={setRejectOpen} onConfirm={(reason) => act((db2) => { rejectDelivery(db2, d.id, actor, reason, new Date().toISOString()); logAudit(db2, actor, "delivery_rejected", `${d.no} for ${custName(c)}: ${reason}`); }, `Rejected ${d.no}. Stock moved back to the truck.`, rpc("reject_delivery", { p_id: d.id, p_reason: reason }))} />
     </Card>
   );
 }

@@ -18,7 +18,8 @@ import { AREAS } from "@/lib/seed";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
-import { useLookups, useStore } from "@/lib/store";
+import { peopleApi, tempPassword } from "@/lib/live/people";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import type { Customer } from "@/lib/types";
 import { customerErrors, paymentError } from "@/lib/validate";
 import { cn } from "@/lib/utils";
@@ -294,13 +295,13 @@ function PaymentDialog({ customer, open, onOpenChange }: { customer: Customer; o
   const due = balances[customer.id].outstanding;
   const amt = Number(amount);
   const err = amount ? paymentError(amt) : null;
-  const save = () => {
+  const save = async () => {
     if (paymentError(amt)) return;
-    act((d) => {
+    const ok = await act((d) => {
       recordPayment(d, { customerId: customer.id, date: dayKey(), ts: new Date().toISOString(), amount: amt, mode, ref: ref.trim() || undefined, source: "app" });
       logAudit(d, actor, "payment", `${rupees(amt)} ${mode.toUpperCase()} from ${custName(customer)}${ref.trim() ? ` (ref ${ref.trim()})` : ""}`);
-    }, `Payment of ${rupees(amt)} recorded`);
-    onOpenChange(false); setAmount(""); setRef("");
+    }, `Payment of ${rupees(amt)} recorded`, rpc("record_payment", { p_customer: customer.id, p_amount: amt, p_mode: mode, p_ref: ref.trim() }));
+    if (ok) { onOpenChange(false); setAmount(""); setRef(""); }
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -323,7 +324,8 @@ function PaymentDialog({ customer, open, onOpenChange }: { customer: Customer; o
 }
 
 function CustomerDialog({ customer, onClose }: { customer: Customer | null; onClose: () => void }) {
-  const { db, act } = useStore();
+  const { db, act, live } = useStore();
+  const [pwd, setPwd] = React.useState(tempPassword);
   const sizes = useSizes();
   const actor = useActorId();
   const [touched, setTouched] = React.useState(false);
@@ -338,10 +340,11 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
   const areas = [...new Set([...Object.keys(AREAS), ...db.customers.map((c) => c.area)])].sort();
   const clean: Customer = { ...f, name: f.name.trim(), businessName: f.businessName.trim(), address: f.address.trim(), gstin: f.gstin.trim().toUpperCase(), phone: f.phone.trim() };
   const errors = customerErrors(clean, db.users);
-  const save = () => {
+  const save = async () => {
     if (errors.length) return;
     const f = clean;
-    act((d) => {
+    const heldLive = Object.fromEntries(Object.entries(held).filter(([, n]) => n > 0));
+    const ok = await act((d) => {
       if (customer) {
         const i = d.customers.findIndex((c) => c.id === customer.id);
         d.customers[i] = { ...f };
@@ -361,8 +364,15 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
         }
         logAudit(d, actor, "customer_added", `Added ${custName(c)} (${c.area})`);
       }
-    }, customer ? "Customer updated" : "Customer added");
-    onClose();
+    }, customer ? "Customer updated" : live ? `Customer added. Their app login: phone ${f.phone}, password ${pwd}` : "Customer added", async (sb) => {
+      const spot = AREAS[f.area];
+      const id = (await rpc("upsert_customer", { p: { ...f, id: customer?.id ?? "", lat: spot?.lat ?? f.lat, lng: spot?.lng ?? f.lng } })(sb)) as string;
+      if (!customer) {
+        if (Number(openingDue) > 0 || Object.keys(heldLive).length) await rpc("set_customer_opening", { p_customer: id, p_outstanding: Number(openingDue) || 0, p_held: heldLive })(sb);
+        await peopleApi(sb, { kind: "customer", customerId: id, password: pwd });
+      }
+    });
+    if (ok) onClose();
   };
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -401,11 +411,18 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
               </div>
             </div>
           )}
+          {!customer && live && (
+            <div className="grid gap-1.5 sm:col-span-2 sm:max-w-sm">
+              <Label htmlFor="c-pwd">First password for their app login</Label>
+              <Input id="c-pwd" value={pwd} onChange={(e) => setPwd(e.target.value.trim())} minLength={8} maxLength={64} className="font-mono" />
+              <p className="text-xs text-muted-foreground">They sign in on the customer page with their phone number and this password, and can change it later.</p>
+            </div>
+          )}
         </div>
         {touched && errors.length > 0 && (
           <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"><ul className="list-disc pl-5">{errors.map((e) => <li key={e}>{e}</li>)}</ul></div>
         )}
-        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => { setTouched(true); save(); }} disabled={touched && errors.length > 0}>Save</Button></DialogFooter>
+        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => { setTouched(true); save(); }} disabled={(touched && errors.length > 0) || (live && !customer && pwd.length < 8)}>Save</Button></DialogFooter>
       </DialogContent>
     </Dialog>
   );

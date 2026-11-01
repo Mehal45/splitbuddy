@@ -21,7 +21,7 @@ import {
 import { custName, dayKey, fmtDate, fmtDateTime, rupees, timeAgo } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
-import { useLookups, useStore } from "@/lib/store";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import { SLOT_LABEL, type Order, type OrderSlot, type OrderStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -64,11 +64,11 @@ export function OrderCylindersView() {
   const bad = sizes.some((z) => (qty[z.id] ?? 0) > MAX_ORDER_QTY);
   const missing = open >= MAX_OPEN_ORDERS ? `You have ${open} orders on the way` : !count ? "Add cylinders" : bad ? `Max ${MAX_ORDER_QTY} per size` : "";
 
-  const submit = () => {
-    const ok = act((d) => {
+  const submit = async () => {
+    const ok = await act((d) => {
       const o = placeOrder(d, { customerId: c.id, lines: qty, wantedDate: date, slot, note, userId: actor, ts: new Date().toISOString(), today });
       logAudit(d, actor, "order_placed", `${o.no} · ${custName(c)} · ${Object.entries(o.lines).map(([s, q]) => `${q} × ${s} kg`).join(", ")} for ${o.wantedDate} ${o.slot}`);
-    }, "Order placed. The agency has been notified.");
+    }, "Order placed. The agency has been notified.", rpc("place_order", { p_customer: c.id, p_lines: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)), p_wanted: date, p_slot: slot, p_note: note }));
     if (ok) { setQty({}); setNote(""); setDate(today); navigate("/me/orders"); }
   };
 
@@ -170,7 +170,7 @@ export function MyOrdersView() {
             <Button variant="outline" onClick={() => setCancelling(null)}>Keep it</Button>
             <Button variant="destructive" onClick={() => {
               const o = cancelling!;
-              act((d) => { cancelOrder(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_cancelled", `${o.no} cancelled by customer`); }, "Order cancelled");
+              act((d) => { cancelOrder(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_cancelled", `${o.no} cancelled by customer`); }, "Order cancelled", rpc("handle_order", { p_id: o.id, p_action: "cancel" }));
               setCancelling(null);
             }}>Cancel order</Button>
           </DialogFooter>
@@ -213,8 +213,8 @@ function OrderCard({ o, onReject }: { o: Order; onReject: (o: Order) => void }) 
   const c = L.customer.get(o.customerId);
   const b = c ? balances[c.id] : undefined;
   const over = c && b && c.creditLimit > 0 && b.outstanding > c.creditLimit;
-  const accept = () => act((d) => { acceptOrder(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_accepted", `${o.no} · ${c ? custName(c) : ""}`); }, `Order accepted. ${c ? custName(c) : "The customer"} can see it's on the way.`);
-  const done = () => act((d) => { markOrderDelivered(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_delivered", `${o.no} marked delivered by hand`); }, "Order marked delivered");
+  const accept = () => act((d) => { acceptOrder(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_accepted", `${o.no} · ${c ? custName(c) : ""}`); }, `Order accepted. ${c ? custName(c) : "The customer"} can see it's on the way.`, rpc("handle_order", { p_id: o.id, p_action: "accept" }));
+  const done = () => act((d) => { markOrderDelivered(d, o.id, actor, new Date().toISOString()); logAudit(d, actor, "order_delivered", `${o.no} marked delivered by hand`); }, "Order marked delivered", rpc("handle_order", { p_id: o.id, p_action: "delivered" }));
   return (
     <Card className={cn("gap-2 py-4", o.status === "new" && "border-warning")}>
       <CardContent className="grid gap-2 px-4">
@@ -261,9 +261,9 @@ function RejectDialog({ order, onClose }: { order: Order | null; onClose: () => 
         <Textarea aria-label="Reason" rows={2} maxLength={200} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Or type a reason" />
         <DialogFooter>
           <Button variant="outline" onClick={() => { onClose(); setReason(""); }}>Back</Button>
-          <Button variant="destructive" disabled={!reason.trim()} onClick={() => {
+          <Button variant="destructive" disabled={!reason.trim()} onClick={async () => {
             const o = order!;
-            const ok = act((d) => { rejectOrder(d, o.id, actor, reason, new Date().toISOString()); logAudit(d, actor, "order_rejected", `${o.no}: ${reason.trim()}`); }, "Order rejected");
+            const ok = await act((d) => { rejectOrder(d, o.id, actor, reason, new Date().toISOString()); logAudit(d, actor, "order_rejected", `${o.no}: ${reason.trim()}`); }, "Order rejected", rpc("handle_order", { p_id: o.id, p_action: "reject", p_reason: reason }));
             if (ok) { onClose(); setReason(""); }
           }}>Reject order</Button>
         </DialogFooter>

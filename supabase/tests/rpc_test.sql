@@ -64,7 +64,7 @@ select t.ok((select round(total) from invoices where kind = 'purchase') = 30 * 1
 -- ---------------- driver
 select set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-0000-0000-000000000004', false);
 select t.ok((select count(*) from customers) = 2, 'driver can see customers to deliver to');
-select t.ok((select count(*) from invoices) = 0, 'driver cannot see invoices');
+select t.ok((select count(*) from invoices where kind = 'purchase') = 0, 'driver cannot see plant purchases (can see sales to collect dues)');
 select t.ok((select count(*) from stock) = (select count(*) from stock where loc like 'TRUCK:%'), 'driver sees only own truck stock');
 select t.fails($q$select submit_delivery('33333333-0000-0000-0000-000000000001', '{"19": 2}', '{"19": 2}', '{"amount": 100, "mode": "cash"}', 'deliveries/someone-else/x.jpg', '{"lat": 12.9, "lng": 77.5}')$q$, 'photo');
 select t.fails($q$select submit_delivery('33333333-0000-0000-0000-000000000001', '{"19": 50}', '{}', null, 'deliveries/aaaaaaaa-0000-0000-0000-000000000004/a.jpg', '{"lat": 12.9, "lng": 77.5}')$q$, 'Not enough full');

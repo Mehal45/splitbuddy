@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { isSafePhoto, payParts, payStatus } from "@/lib/engine";
 import { dayKey, distanceKm, fmtDateTime, rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useFileUrl } from "@/lib/live/files";
 import type { Customer, Delivery, DeliveryStatus, SizeQty } from "@/lib/types";
 
 export function PageHeader({ title, description, actions, className }: { title: string; description?: React.ReactNode; actions?: React.ReactNode; className?: string }) {
@@ -122,7 +123,10 @@ export function ackSrc(d: Delivery, customer?: Customer) {
 
 export function AckPhoto({ delivery, customer, className }: { delivery: Delivery; customer?: Customer; className?: string }) {
   const [open, setOpen] = React.useState(false);
-  const src = React.useMemo(() => ackSrc(delivery, customer), [delivery, customer]);
+  const stored = delivery.photo.startsWith("deliveries/");
+  const remote = useFileUrl(stored ? delivery.photo : null);
+  const local = React.useMemo(() => ackSrc(delivery, customer), [delivery, customer]);
+  const src = stored ? remote ?? local : local;
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className={cn("group relative block overflow-hidden rounded-md border bg-muted", className)} aria-label="Open acknowledgement photo">

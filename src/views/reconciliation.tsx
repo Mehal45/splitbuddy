@@ -12,7 +12,7 @@ import { logAudit, reconcileTruck, truckExpected } from "@/lib/engine";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
-import { useLookups, useStore } from "@/lib/store";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import type { Reconciliation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -157,11 +157,11 @@ function EnterCountsDialog({ truckId, onClose }: { truckId: string; onClose: () 
   const driverId = db.loadSheets.filter((l) => l.date === today && l.truckId === truckId).at(-1)?.driverId ?? db.drivers.find((d) => d.truckId === truckId)!.id;
   const mismatch = sizes.some((s) => actual[s.id]?.full !== expected[s.id]?.full || actual[s.id]?.empty !== expected[s.id]?.empty);
 
-  const save = () => {
-    const ok = act((d) => {
+  const save = async () => {
+    const ok = await act((d) => {
       reconcileTruck(d, { date: today, ts: new Date().toISOString(), truckId, driverId, actual, userId: actor });
       logAudit(d, actor, "reconciliation", `${L.truck.get(truckId)?.regNo}: counts ${mismatch ? `MISMATCH (driver ${L.driver.get(driverId)?.name})` : "matched"}`);
-    }, mismatch ? `Saved with a mismatch against ${L.driver.get(driverId)?.name}` : "Truck returned. Counts match.");
+    }, mismatch ? `Saved with a mismatch against ${L.driver.get(driverId)?.name}` : "Truck returned. Counts match.", rpc("reconcile_truck", { p_truck: truckId, p_actual: actual }));
     if (ok) onClose();
   };
 

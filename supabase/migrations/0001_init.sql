@@ -438,10 +438,10 @@ create policy read on stock for select to authenticated using (
 create policy read on counters for select to authenticated using (false);
 create policy read on load_sheets for select to authenticated using (is_staff() or truck_id = my_truck_id());
 create policy read on deliveries for select to authenticated using (is_staff() or driver_id = my_driver_id() or customer_id = my_customer_id());
-create policy read on invoices for select to authenticated using (is_staff() or (kind = 'sale' and party_id = my_customer_id()::text));
+create policy read on invoices for select to authenticated using (is_staff() or (kind = 'sale' and (party_id = my_customer_id()::text or my_role() = 'driver')));
 create policy read on attachments for select to authenticated using (
   (owner_type = 'invoice' and is_staff()) or (owner_type = 'expense' and can_book_expenses()));
-create policy read on payments for select to authenticated using (is_staff() or customer_id = my_customer_id());
+create policy read on payments for select to authenticated using (is_staff() or my_role() = 'driver' or customer_id = my_customer_id());
 create policy read on reconciliations for select to authenticated using (is_staff());
 create policy read on expenses for select to authenticated using (can_book_expenses());
 create policy read on orders for select to authenticated using (is_staff() or customer_id = my_customer_id());

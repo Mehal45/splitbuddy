@@ -16,12 +16,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, PhoneRow, StatCard, useDateRange } from "@/components/app/common";
-import { openPdf, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
+import { FileImg, openPdf, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
 import { addExpense, canBookExpenses, deleteExpense, isSafeAttachment, logAudit } from "@/lib/engine";
 import { dayKey, fmtDate, fmtDateShort, fmtDateTime, fmtMonth, rupees, rupeesShort } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { profitAndLoss, type PLStatement } from "@/lib/selectors";
-import { useLookups, useStore } from "@/lib/store";
+import { uploadDataUrl } from "@/lib/live/files";
+import { useLookups, rpc, useStore } from "@/lib/store";
 import { EXPENSE_CATEGORIES, type Attachment, type Expense, type ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -41,15 +42,19 @@ function ExpenseDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   const truckRelated = f.category === "Diesel / fuel" || f.category === "Truck repair & maintenance" || f.category === "Tolls & parking";
   const missing = !f.category ? "Pick the expense type" : !f.amount || amount < 1 ? "Enter the amount" : f.category === "Other" && !f.note.trim() ? "Write what it was for" : f.date > today ? "Date can't be in the future" : "";
 
-  const save = () => {
-    const ok = act((d) => {
+  const save = async () => {
+    const ok = await act((d) => {
       const e = addExpense(d, {
         date: f.date, ts: new Date().toISOString(), category: f.category as ExpenseCategory, amount, mode: f.mode, paidTo: f.paidTo, note: f.note,
         truckId: truckRelated ? f.truckId || undefined : undefined, userId: actor, today,
         attachments: files.map((r) => ({ ...r, uploadedBy: actor, ts: new Date().toISOString() })),
       });
       logAudit(d, actor, "expense_added", `${e.no} · ${e.category} · ${rupees(e.amount)} (${MODE_LABEL[e.mode]})${e.paidTo ? ` to ${e.paidTo}` : ""}${e.date !== today ? ` dated ${e.date}` : ""}`);
-    }, "Expense booked");
+    }, "Expense booked", async (sb) => {
+      const att = [];
+      for (const r of files) att.push({ name: r.name, kind: r.kind, bytes: r.bytes, path: await uploadDataUrl(sb, "expenses", r.dataUrl) });
+      await rpc("add_expense", { p: { date: f.date, category: f.category, amount, mode: f.mode, paidTo: f.paidTo, note: f.note, truckId: truckRelated ? f.truckId : "", attachments: att } })(sb);
+    });
     if (ok) { onOpenChange(false); setF(blank); setFiles([]); }
   };
 
@@ -132,12 +137,12 @@ function ExpenseDetail({ expense, onClose }: { expense: Expense | null; onClose:
   const [confirm, setConfirm] = React.useState(false);
   const [viewing, setViewing] = React.useState<Attachment | null>(null);
   const e = expense;
-  const files = (e?.attachments ?? []).filter(isSafeAttachment);
-  const remove = () => {
-    const ok = act((d) => {
+  const files = (e?.attachments ?? []).filter((a) => a.path || isSafeAttachment(a));
+  const remove = async () => {
+    const ok = await act((d) => {
       const x = deleteExpense(d, actor, e!.id);
       logAudit(d, actor, "expense_deleted", `${x.no} · ${x.category} · ${rupees(x.amount)} dated ${x.date}, booked by ${L.user.get(x.by)?.name ?? "unknown"}`);
-    }, "Expense deleted");
+    }, "Expense deleted", rpc("delete_expense", { p_id: e!.id }));
     if (ok) { setConfirm(false); onClose(); }
   };
   return (
@@ -161,8 +166,7 @@ function ExpenseDetail({ expense, onClose }: { expense: Expense | null; onClose:
                       <button type="button" className="flex h-28 w-full items-center justify-center overflow-hidden rounded-md border bg-muted" onClick={() => (a.kind === "pdf" ? openPdf(a) : setViewing(a))} aria-label={`Open ${a.name}`}>
                         {a.kind === "pdf"
                           ? <span className="flex flex-col items-center gap-1 text-xs text-muted-foreground"><FileText className="size-8" /> Open PDF</span>
-                          // eslint-disable-next-line @next/next/no-img-element
-                          : <img src={a.dataUrl} alt={a.name} className="size-full object-cover" />}
+                          : <FileImg a={a} className="size-full object-cover" />}
                       </button>
                     </li>
                   ))}
@@ -180,8 +184,7 @@ function ExpenseDetail({ expense, onClose }: { expense: Expense | null; onClose:
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader><DialogTitle>{viewing?.name}</DialogTitle><DialogDescription>{e?.no}</DialogDescription></DialogHeader>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {viewing && <img src={viewing.dataUrl} alt={viewing.name} className="max-h-[70dvh] w-full rounded-md border object-contain" />}
+          {viewing && <FileImg a={viewing} className="max-h-[70dvh] w-full rounded-md border object-contain" />}
         </DialogContent>
       </Dialog>
       <Dialog open={confirm} onOpenChange={setConfirm}>

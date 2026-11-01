@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { Role } from "@/lib/types";
 import { SettingsView, TallyView } from "./admin";
+import { LIVE } from "@/lib/live/client";
 import { ApprovalsView } from "./approvals";
 import { CustomerDetail, CustomersView } from "./customers";
 import { DriverHistoryView, DriverHome, NewDeliveryView } from "./driver";
@@ -59,7 +60,7 @@ export const ROUTES: RouteDef[] = [
   { pattern: "/customers/:id", roles: OW, render: (p) => <CustomerDetail id={p.id} /> },
   { pattern: "/fleet", roles: ["owner"], render: () => <FleetView /> },
   { pattern: "/reports", roles: ["owner"], render: () => <ReportsView /> },
-  { pattern: "/tally", roles: ["owner"], render: () => <TallyView /> },
+  ...(LIVE ? [] : [{ pattern: "/tally", roles: ["owner"] as Role[], render: () => <TallyView /> }]),
   { pattern: "/settings", roles: ["owner"], render: () => <SettingsView /> },
   { pattern: "/activity", roles: ["owner"], render: () => <ActivityView /> },
   { pattern: "/driver/new", roles: ["driver"], render: () => <NewDeliveryView /> },
