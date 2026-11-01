@@ -47,6 +47,7 @@ export interface User {
   phone: string;
   driverId?: string;
   customerId?: string;
+  manager?: boolean; // warehouse manager: can also book expenses
 }
 
 export interface Driver {
@@ -230,7 +231,30 @@ export type AuditAction =
   | "delivery_submitted" | "delivery_approved" | "delivery_rejected"
   | "load_sheet" | "reconciliation" | "purchase" | "payment" | "stock_state_change"
   | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset"
-  | "team_changed" | "opening_stock" | "receipt_attached" | "receipt_removed";
+  | "team_changed" | "opening_stock" | "receipt_attached" | "receipt_removed"
+  | "expense_added" | "expense_deleted";
+
+export const EXPENSE_CATEGORIES = [
+  "Diesel / fuel", "Salaries & wages", "Loading / hamali", "Truck repair & maintenance", "Rent",
+  "Electricity & water", "Phone & internet", "Tea & food", "Office & stationery", "Tolls & parking",
+  "Bank charges", "Other",
+] as const;
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+
+export interface Expense {
+  id: string;
+  no: string; // EX/26-27/00001
+  date: string; // YYYY-MM-DD (IST), the day the money was spent
+  ts: string; // when it was booked
+  category: ExpenseCategory;
+  amount: number; // whole rupees
+  mode: "cash" | "upi" | "bank";
+  paidTo: string;
+  note: string;
+  truckId?: string;
+  attachments?: Attachment[];
+  by: string; // user id
+}
 
 export interface AuditEntry {
   id: string;
@@ -259,5 +283,6 @@ export interface DB {
   syncLog: SyncLogEntry[];
   lastSyncedAt: string | null;
   counters: Record<string, number>;
+  expenses?: Expense[]; // optional so data saved before expenses existed still loads
   audit?: AuditEntry[]; // newest last, capped (see engine.logAudit)
 }

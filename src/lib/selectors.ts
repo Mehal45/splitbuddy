@@ -187,3 +187,42 @@ export function stockFlowByDay(db: DB, days: number, now = Date.now()) {
   }
   return [...map.values()];
 }
+
+// ---------- daily net profit: money collected minus expenses ----------
+
+export interface DayProfit {
+  date: string;
+  cash: number; upi: number; other: number; // collected (cheque / NEFT go in "other")
+  collected: number;
+  expenses: number;
+  byCategory: Record<string, number>;
+  net: number;
+  pendingCollected: number; // collected on deliveries still waiting for approval
+}
+
+/** Every day from..to (inclusive, YYYY-MM-DD), newest first. */
+export function dailyProfit(db: DB, from: string, to: string): DayProfit[] {
+  const rows = new Map<string, DayProfit>();
+  if (from > to) return [];
+  for (let t = Date.parse(`${to}T00:00:00Z`), stop = Date.parse(`${from}T00:00:00Z`), n = 0; t >= stop && n < 400; t -= 864e5, n++) {
+    const date = new Date(t).toISOString().slice(0, 10);
+    rows.set(date, { date, cash: 0, upi: 0, other: 0, collected: 0, expenses: 0, byCategory: {}, net: 0, pendingCollected: 0 });
+  }
+  for (const p of db.payments) {
+    const r = rows.get(p.date);
+    if (!r) continue;
+    if (p.mode === "cash") r.cash += p.amount; else if (p.mode === "upi") r.upi += p.amount; else r.other += p.amount;
+  }
+  for (const d of db.deliveries) {
+    const r = d.status === "pending" && d.payment ? rows.get(d.date) : undefined;
+    if (r) r.pendingCollected += d.payment!.amount;
+  }
+  for (const e of db.expenses ?? []) {
+    const r = rows.get(e.date);
+    if (!r) continue;
+    r.expenses += e.amount;
+    r.byCategory[e.category] = (r.byCategory[e.category] ?? 0) + e.amount;
+  }
+  for (const r of rows.values()) { r.collected = r.cash + r.upi + r.other; r.net = r.collected - r.expenses; }
+  return [...rows.values()];
+}

@@ -282,6 +282,48 @@ await page.getByText(/Imported \d+ vouchers/).waitFor({ timeout: 10000 });
 if ((await db()).syncLog.length !== syncs + 1) throw new Error("tally sync failed");
 step("Tally sync imported vouchers");
 
+// Expenses: owner books one with a bill photo, daily profit = collected − expenses
+await page.goto(base + "#/expenses");
+const exBefore = (await db()).expenses.length;
+await page.getByRole("button", { name: "Book expense" }).first().click();
+const exDlg = page.getByRole("dialog");
+await exDlg.getByLabel("Expense type").click();
+await page.getByRole("option", { name: "Diesel / fuel" }).click();
+await exDlg.getByLabel("Amount (₹)").fill("2,5x00");
+if ((await exDlg.getByLabel("Amount (₹)").inputValue()) !== "2500") throw new Error("amount box should keep digits only");
+await exDlg.getByRole("radio", { name: "UPI" }).click();
+await exDlg.getByLabel("Paid to").fill("=HYPERLINK(\"x\")");
+await exDlg.locator('input[type=file][multiple]').setInputFiles({ name: "diesel.png", mimeType: "image/png", buffer: png });
+await exDlg.getByText("diesel.jpg").waitFor();
+await exDlg.getByRole("button", { name: "Book ₹2,500" }).click();
+await page.getByText("Expense booked").waitFor();
+const ex = (await db()).expenses.at(-1);
+if ((await db()).expenses.length !== exBefore + 1 || ex.amount !== 2500 || ex.mode !== "upi" || ex.category !== "Diesel / fuel" || ex.attachments?.length !== 1 || ex.by !== "u-owner") throw new Error("expense not saved right");
+step(`owner booked expense ${ex.no} ₹2,500 diesel by UPI with bill photo`);
+
+await page.goto(base + "#/profit");
+const pdb = await db();
+const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+const coll = pdb.payments.filter((p) => p.date === todayKey).reduce((n, p) => n + p.amount, 0);
+const spent = pdb.expenses.filter((e) => e.date === todayKey).reduce((n, e) => n + e.amount, 0);
+const fmt = (n) => (n < 0 ? "− " : "") + "₹" + Math.abs(n).toLocaleString("en-IN");
+await page.getByText(fmt(coll - spent)).first().waitFor();
+step(`daily profit today = collected ${fmt(coll)} − expenses ${fmt(spent)} = ${fmt(coll - spent)}`);
+const [pdl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
+const csvText = fs.readFileSync(await pdl.path(), "utf8");
+if (!csvText.includes("Net profit / loss")) throw new Error("profit CSV missing header");
+step(`profit CSV export: ${pdl.suggestedFilename()}`);
+
+// Owner deletes the expense: gone, and the activity log keeps it
+await page.goto(base + "#/expenses");
+await page.getByRole("row", { name: /Diesel \/ fuel.*2,500/ }).first().click();
+await page.getByRole("button", { name: "Delete expense" }).click();
+await page.getByRole("button", { name: "Delete", exact: true }).click();
+await page.getByText("Expense deleted").waitFor();
+const afterDel = await db();
+if (afterDel.expenses.some((e) => e.id === ex.id) || !afterDel.audit.some((a) => a.action === "expense_deleted" && a.detail.includes(ex.no))) throw new Error("expense delete not logged");
+step("owner deleted the expense; activity log keeps the record");
+
 // Reports export
 await page.goto(base + "#/reports");
 const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
@@ -328,6 +370,38 @@ await page.reload();
 await page.getByRole("heading", { name: "Owner login", exact: true }).waitFor();
 if (await page.getByText("Stock across locations").count()) throw new Error("forged session must not sign in");
 step("forged/expired session is ignored (back to login)");
+
+// Plain warehouse staff can't see or book expenses; a manager can, but can't see profit or delete
+await loginAs("u-wh2");
+if (await page.getByRole("link", { name: "Expenses" }).count()) throw new Error("expenses menu shown to non-manager");
+await page.goto(base + "#/expenses");
+await page.getByText("Only the owner and warehouse managers can see expenses").waitFor();
+const forged = await page.evaluate(() => {
+  const d = JSON.parse(localStorage.getItem("anmol-gas-demo:db"));
+  return d.users.find((u) => u.id === "u-wh2").manager;
+});
+if (forged) throw new Error("u-wh2 should not be a manager");
+step("non-manager staff: no expenses menu, page blocked");
+
+await loginAs("u-wh1");
+await page.goto(base + "#/expenses");
+await page.getByRole("button", { name: "Book expense" }).first().click();
+const mDlg = page.getByRole("dialog");
+await mDlg.getByLabel("Expense type").click();
+await page.getByRole("option", { name: "Other" }).click();
+await mDlg.getByLabel("Amount (₹)").fill("350");
+if (await mDlg.getByRole("button", { name: "Book ₹350" }).isEnabled()) throw new Error("'Other' without a note must be blocked");
+await mDlg.getByLabel(/^Note/).fill("Broom and cleaning supplies");
+await mDlg.getByRole("button", { name: "Book ₹350" }).click();
+await page.getByText("Expense booked").waitFor();
+const mEx = (await db()).expenses.at(-1);
+if (mEx.by !== "u-wh1" || mEx.amount !== 350) throw new Error("manager expense not saved");
+await page.getByRole("row", { name: /Broom/ }).first().click();
+if (await page.getByRole("button", { name: "Delete expense" }).count()) throw new Error("manager must not delete expenses");
+await page.keyboard.press("Escape");
+await page.goto(base + "#/profit");
+await page.getByText("This page isn't available for your role.").waitFor();
+step(`warehouse manager booked ${mEx.no}; can't delete or open the profit report`);
 
 // Driver can't open staff pages
 await loginAs("u-dr1");

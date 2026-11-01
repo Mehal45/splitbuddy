@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
-  Receipt, RefreshCw, Scale, Settings, Sun, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
+  Receipt, RefreshCw, Scale, Settings, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { useStore } from "@/lib/store";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export interface NavItem { href: string; label: string; icon: React.ElementType; badge?: "pending" | "alerts" }
+export interface NavItem { href: string; label: string; icon: React.ElementType; badge?: "pending" | "alerts"; managerOnly?: boolean }
 
 export const NAV: Record<Role, NavItem[]> = {
   owner: [
@@ -30,6 +30,8 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/loads", label: "Load sheets", icon: Truck },
     { href: "/reconciliation", label: "End of day", icon: Scale },
     { href: "/stock", label: "Stock", icon: Boxes },
+    { href: "/profit", label: "Daily profit", icon: TrendingUp },
+    { href: "/expenses", label: "Expenses", icon: Wallet },
     { href: "/purchases", label: "Purchases", icon: Factory },
     { href: "/sales", label: "Sales invoices", icon: Receipt },
     { href: "/customers", label: "Customers", icon: Users },
@@ -46,6 +48,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
     { href: "/purchases", label: "Stock receipts", icon: PackagePlus },
     { href: "/reconciliation", label: "End of day", icon: Scale },
+    { href: "/expenses", label: "Expenses", icon: Wallet, managerOnly: true },
     { href: "/stock", label: "Stock", icon: Boxes },
     { href: "/movements", label: "Movement log", icon: History },
     { href: "/customers", label: "Customers", icon: Users },
@@ -64,6 +67,8 @@ export const NAV: Record<Role, NavItem[]> = {
 };
 
 export const ROLE_LABEL: Record<Role, string> = { owner: "Owner", warehouse: "Warehouse staff", driver: "Driver", customer: "Customer" };
+/** Role label for a person ("Warehouse manager" for staff marked as manager). */
+export const userRoleLabel = (u: { role: Role; manager?: boolean }) => (u.role === "warehouse" && u.manager ? "Warehouse manager" : ROLE_LABEL[u.role]);
 
 function isActive(href: string, path: string) {
   if (href === "/") return path === "/";
@@ -216,7 +221,7 @@ function ViewAsBanner() {
 }
 
 function UserMenu() {
-  const { realUser, user, logout, role } = useStore();
+  const { realUser, user, logout } = useStore();
   const [viewOpen, setViewOpen] = React.useState(false);
   if (!user) return null;
   const initials = user.name.split(" ").map((p) => p[0]).slice(0, 2).join("");
@@ -228,12 +233,12 @@ function UserMenu() {
             <span className="flex size-7 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">{initials}</span>
             <span className="hidden text-left text-sm leading-tight sm:block">
               <span className="block max-w-[9rem] truncate font-medium">{user.name}</span>
-              <span className="block text-xs text-muted-foreground">{ROLE_LABEL[role!]}</span>
+              <span className="block text-xs text-muted-foreground">{userRoleLabel(user)}</span>
             </span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>{realUser?.name}<span className="block text-xs font-normal text-muted-foreground">{ROLE_LABEL[realUser!.role]}</span></DropdownMenuLabel>
+          <DropdownMenuLabel>{realUser?.name}<span className="block text-xs font-normal text-muted-foreground">{userRoleLabel(realUser!)}</span></DropdownMenuLabel>
           <DropdownMenuSeparator />
           {realUser?.role === "owner" && <DropdownMenuItem onClick={() => setViewOpen(true)}><Eye /> View as another role…</DropdownMenuItem>}
           <DropdownMenuItem onClick={() => { const home = LOGIN_PATH[realUser!.role]; logout(); navigate(home); }}><LogOut /> Log out</DropdownMenuItem>
@@ -258,10 +263,10 @@ function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 export function AppShell({ path, children }: { path: string; children: React.ReactNode }) {
-  const { role, realUser, db } = useStore();
+  const { role, realUser, user, db } = useStore();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [viewOpen, setViewOpen] = React.useState(false);
-  const items = NAV[role!];
+  const items = NAV[role!].filter((i) => !i.managerOnly || !!user?.manager);
 
   if (role === "driver") {
     return (

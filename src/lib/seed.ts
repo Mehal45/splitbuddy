@@ -3,12 +3,12 @@
 // demo always ends today. It uses the same engine functions as the UI.
 
 import {
-  approveDelivery, changeState, computeStock, createLoadSheet, createPurchase, createSaleInvoice, custLoc, locQty,
+  addExpense, approveDelivery, changeState, computeStock, createLoadSheet, createPurchase, createSaleInvoice, custLoc, locQty,
   move, priceFor, reconcileTruck, recordPayment, rejectDelivery, submitDelivery, truckExpected, WH,
 } from "./engine";
 import { dayKey } from "./format";
 import { customerBalances } from "./selectors";
-import type { Customer, CylinderSize, DB, Driver, SizeQty, Truck } from "./types";
+import type { Customer, CylinderSize, DB, Driver, Expense, ExpenseCategory, SizeQty, Truck } from "./types";
 
 export const DB_VERSION = 6;
 
@@ -37,7 +37,7 @@ export function buildEmpty(nowMs = Date.now()): DB {
       { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29ABCDE1234F1Z5", state: "Karnataka" },
       { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33ABCDE1234F1Z9", state: "Tamil Nadu" },
     ],
-    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [],
+    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [], expenses: [],
     lastSyncedAt: null, counters: {}, audit: [],
   };
 }
@@ -154,7 +154,7 @@ export function buildSeed(nowMs = Date.now()): DB {
   db.sample = true;
 
   // ---- people and trucks ----
-  db.users.push({ id: "u-wh1", name: "Shivakumar B", role: "warehouse", phone: "98860 45120" });
+  db.users.push({ id: "u-wh1", name: "Shivakumar B", role: "warehouse", phone: "98860 45120", manager: true });
   db.users.push({ id: "u-wh2", name: "Lakshmi Devi", role: "warehouse", phone: "99004 77812" });
   DRIVERS.forEach((name, i) => {
     const [model, capacity] = TRUCK_MODELS[i % TRUCK_MODELS.length];
@@ -399,6 +399,31 @@ export function buildSeed(nowMs = Date.now()): DB {
     const due = bal[c.id].outstanding;
     if (flags[c.id] === "C") c.creditLimit = Math.max(5000, Math.floor((due * 0.75) / 5000) * 5000);
     else if (due > c.creditLimit * 0.9) c.creditLimit = Math.ceil((due * 1.4) / 10000) * 10000;
+  }
+
+  // Day-to-day expenses, booked by the owner or the warehouse manager.
+  // Separate random stream so the rest of the history stays the same.
+  {
+    const er = rng(20240917);
+    const eri = (a: number, b: number) => a + Math.floor(er() * (b - a + 1));
+    const booker = () => (er() < 0.7 ? "u-wh1" : "u-owner");
+    const add = (date: string, min: number, category: ExpenseCategory, amount: number, mode: Expense["mode"], paidTo: string, note = "", truckId?: string) => {
+      addExpense(db, { date, ts: tsMin(date, min), category, amount, mode, paidTo, note, truckId, userId: category === "Salaries & wages" || category === "Rent" ? "u-owner" : booker(), today });
+    };
+    for (const date of dates) {
+      const dom = Number(date.slice(8, 10));
+      const isToday = date === today;
+      for (const t of db.trucks) if (er() < (isToday ? 0.25 : 0.45)) add(date, 8 * 60 + eri(0, 50), "Diesel / fuel", eri(18, 32) * 100, er() < 0.6 ? "cash" : "upi", "Indian Oil, Peenya", "", t.id);
+      add(date, 9 * 60 + eri(0, 60), "Loading / hamali", eri(6, 11) * 100, "cash", "Loading crew");
+      if (!isToday || er() < 0.5) add(date, 16 * 60 + eri(0, 30), "Tea & food", eri(12, 30) * 10, "cash", "Sri Ganesh Tea Stall");
+      if (er() < 0.12) add(date, 11 * 60 + eri(0, 90), "Tolls & parking", eri(3, 12) * 10 * 5, "upi", "FASTag recharge");
+      if (er() < 0.06) { const t = db.trucks[eri(0, db.trucks.length - 1)]; add(date, 13 * 60 + eri(0, 120), "Truck repair & maintenance", eri(15, 90) * 100, er() < 0.5 ? "cash" : "upi", "Raju Auto Works", "Tyre / brake work", t?.id); }
+      if (dom === 1) add(date, 10 * 60, "Salaries & wages", 3_85_000, "bank", "Staff & drivers", "Monthly salaries");
+      if (dom === 5) add(date, 10 * 60 + 30, "Rent", 65_000, "bank", "Warehouse landlord", "Godown rent");
+      if (dom === 10) add(date, 12 * 60, "Electricity & water", eri(70, 110) * 100, "upi", "BESCOM");
+      if (dom === 12) add(date, 12 * 60 + 15, "Phone & internet", 2_360, "upi", "Airtel");
+      if (dom === 20 && er() < 0.8) add(date, 15 * 60, "Office & stationery", eri(8, 25) * 100, "cash", "Peenya Stationers", "Bill books, printer paper");
+    }
   }
 
   db.movements.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));

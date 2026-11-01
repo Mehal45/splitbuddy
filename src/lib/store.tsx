@@ -106,7 +106,11 @@ function looksValid(d: unknown): d is DB {
 
 function loadDB(): { db: DB; recovered: boolean } {
   const saved = readJSON<unknown>(DB_KEY);
-  if (looksValid(saved)) return { db: saved, recovered: false };
+  if (looksValid(saved)) {
+    // Data saved before expenses existed: add the empty list instead of wiping anything
+    if (!Array.isArray(saved.expenses)) saved.expenses = [];
+    return { db: saved, recovered: false };
+  }
   const fresh = buildEmpty();
   writeJSON(DB_KEY, fresh);
   return { db: fresh, recovered: saved !== null && (saved as DB)?.version === DB_VERSION };

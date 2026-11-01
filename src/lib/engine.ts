@@ -3,8 +3,9 @@
 
 import { computeTotals } from "./gst";
 import { dayKey } from "./format";
+import { EXPENSE_CATEGORIES } from "./types";
 import type {
-  Attachment, AuditAction, CylState, Customer, DB, Delivery, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
+  Attachment, AuditAction, CylState, Customer, DB, Delivery, Expense, ExpenseCategory, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
 } from "./types";
 
 export const WH = "WH";
@@ -323,12 +324,68 @@ export function addTruckWithDriver(db: DB, a: { regNo: string; model: string; ca
   return { truck, driver };
 }
 
-export function addStaff(db: DB, a: { name: string; phone: string }) {
+export function addStaff(db: DB, a: { name: string; phone: string; manager?: boolean }) {
   checkName(a.name, "Name");
   checkNewPhone(db, a.phone);
-  const user = { id: nextId(db, "u-whnew"), name: a.name.trim(), role: "warehouse" as const, phone: a.phone.trim() };
+  const user = { id: nextId(db, "u-whnew"), name: a.name.trim(), role: "warehouse" as const, phone: a.phone.trim(), manager: !!a.manager };
   db.users.push(user);
   return user;
+}
+
+/** Owner only: make a warehouse staff member a manager (or back to staff). */
+export function setManager(db: DB, actorId: string, userId: string, manager: boolean) {
+  if (db.users.find((u) => u.id === actorId)?.role !== "owner") fail("Only the owner can change who is a manager.");
+  const u = db.users.find((x) => x.id === userId);
+  if (!u || u.role !== "warehouse") fail("Warehouse staff member not found.");
+  u!.manager = manager;
+  return u!;
+}
+
+// ---------- expenses ----------
+
+export const MAX_EXPENSE = 10_00_000; // ₹10 lakh per entry
+
+/** Owner and warehouse managers may book expenses. */
+export function canBookExpenses(u: { role: string; manager?: boolean } | null | undefined) {
+  return !!u && (u.role === "owner" || (u.role === "warehouse" && !!u.manager));
+}
+
+export function addExpense(db: DB, a: {
+  date: string; ts: string; category: ExpenseCategory; amount: number; mode: Expense["mode"]; paidTo: string; note: string;
+  truckId?: string; attachments?: Omit<Attachment, "id">[]; userId: string; today: string;
+}) {
+  if (!canBookExpenses(db.users.find((u) => u.id === a.userId))) fail("Only the owner and warehouse managers can book expenses.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.date) || Number.isNaN(Date.parse(a.date))) fail("Pick a valid date.");
+  if (a.date > a.today) fail("An expense can't be dated in the future.");
+  if (!(EXPENSE_CATEGORIES as readonly string[]).includes(a.category)) fail("Pick an expense type.");
+  if (!Number.isInteger(a.amount) || a.amount < 1 || a.amount > MAX_EXPENSE) fail("Amount must be a whole number from ₹1 to ₹10,00,000.");
+  if (!["cash", "upi", "bank"].includes(a.mode)) fail("Pick how it was paid.");
+  if (a.paidTo.trim().length > 80) fail("'Paid to' can be at most 80 characters.");
+  if (a.note.trim().length > 200) fail("Note can be at most 200 characters.");
+  if (a.category === "Other" && !a.note.trim()) fail("For 'Other', write what the expense was for.");
+  if (a.truckId && !db.trucks.some((t) => t.id === a.truckId)) fail("Truck not found.");
+  const files = a.attachments ?? [];
+  if (files.length > MAX_RECEIPTS_PER_INVOICE) fail(`At most ${MAX_RECEIPTS_PER_INVOICE} bills per expense.`);
+  for (const f of files) {
+    if (!isSafeAttachment(f)) fail("Only JPG/PNG photos and PDF files can be attached.");
+    if (f.bytes > MAX_RECEIPT_BYTES) fail("That file is too large (max 1.5 MB).");
+  }
+  const e: Expense = {
+    id: nextId(db, "ex"), no: nextNo(db, "EX", a.date), date: a.date, ts: a.ts, category: a.category, amount: a.amount, mode: a.mode,
+    paidTo: a.paidTo.trim(), note: a.note.trim(), truckId: a.truckId || undefined, by: a.userId,
+    attachments: files.length ? files.map((f) => ({ ...f, id: nextId(db, "att"), name: cleanFileName(f.name) })) : undefined,
+  };
+  (db.expenses ??= []).push(e);
+  return e;
+}
+
+/** Owner only. The entry is removed; the activity log keeps what it was. */
+export function deleteExpense(db: DB, actorId: string, expenseId: string) {
+  if (db.users.find((u) => u.id === actorId)?.role !== "owner") fail("Only the owner can delete an expense.");
+  const list = db.expenses ?? [];
+  const i = list.findIndex((e) => e.id === expenseId);
+  if (i < 0) fail("Expense not found.");
+  return list.splice(i, 1)[0];
 }
 
 export function addOpeningStock(db: DB, a: { ts: string; userId: string; lines: Record<string, Partial<Record<CylState, number>>> }) {

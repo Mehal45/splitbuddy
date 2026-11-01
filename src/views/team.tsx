@@ -12,7 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/app/common";
-import { addStaff, addTruckWithDriver, logAudit } from "@/lib/engine";
+import { addStaff, addTruckWithDriver, logAudit, setManager } from "@/lib/engine";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { useActorId } from "@/lib/hooks";
 import { useStore } from "@/lib/store";
 
@@ -69,25 +71,36 @@ export function StaffCard() {
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [phone, setPhone] = React.useState("");
+  const [manager, setMgr] = React.useState(false);
   const staff = db.users.filter((u) => u.role === "warehouse");
   const save = () => {
     const ok = act((d) => {
-      const u = addStaff(d, { name, phone });
-      logAudit(d, actor, "team_changed", `Added warehouse staff ${u.name}`);
+      const u = addStaff(d, { name, phone, manager });
+      logAudit(d, actor, "team_changed", `Added warehouse ${u.manager ? "manager" : "staff"} ${u.name}`);
     }, "Staff member added. They can now sign in on the staff page.");
-    if (ok) { setOpen(false); setName(""); setPhone(""); }
+    if (ok) { setOpen(false); setName(""); setPhone(""); setMgr(false); }
   };
+  const toggle = (id: string, on: boolean) => act((d) => {
+    const u = setManager(d, actor, id, on);
+    logAudit(d, actor, "team_changed", `${u.name} is ${on ? "now a warehouse manager (can book expenses)" : "no longer a manager"}`);
+  }, on ? "Made manager. They can now book expenses." : "Manager rights removed");
   return (
     <Card className="mt-6">
       <CardHeader className="flex flex-wrap items-center justify-between gap-2">
-        <div><CardTitle>Warehouse staff</CardTitle><CardDescription className="mt-1">They sign in on the staff page with their mobile number.</CardDescription></div>
+        <div><CardTitle>Warehouse staff & managers</CardTitle><CardDescription className="mt-1">They sign in on the staff page with their mobile number. Managers can also book expenses.</CardDescription></div>
         <Button variant="outline" onClick={() => setOpen(true)}><UserPlus /> Add staff</Button>
       </CardHeader>
       <CardContent>
         {staff.length === 0 ? <EmptyState title="No warehouse staff yet" hint="Add the people who do load sheets, approvals and end-of-day counts." /> : (
           <Table>
-            <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Mobile</TableHead></TableRow></TableHeader>
-            <TableBody>{staff.map((u) => <TableRow key={u.id}><TableCell className="font-medium">{u.name}</TableCell><TableCell className="tabular-nums">{u.phone}</TableCell></TableRow>)}</TableBody>
+            <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Mobile</TableHead><TableHead className="text-right">Manager</TableHead></TableRow></TableHeader>
+            <TableBody>{staff.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="font-medium">{u.name}{u.manager && <Badge variant="info" className="ml-1.5">Manager</Badge>}</TableCell>
+                <TableCell className="tabular-nums">{u.phone}</TableCell>
+                <TableCell className="text-right"><Switch checked={!!u.manager} onCheckedChange={(v) => toggle(u.id, v)} aria-label={`${u.name} is a manager`} /></TableCell>
+              </TableRow>
+            ))}</TableBody>
           </Table>
         )}
       </CardContent>
@@ -97,6 +110,10 @@ export function StaffCard() {
           <div className="grid gap-3">
             <Field id="s-name" label="Name"><Input id="s-name" maxLength={80} value={name} onChange={(e) => setName(e.target.value)} /></Field>
             <Field id="s-phone" label="Mobile"><Input id="s-phone" inputMode="tel" maxLength={14} placeholder="98450 12345" value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d\s+]/g, ""))} /></Field>
+            <label className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm" htmlFor="s-mgr">
+              <span><span className="font-medium">Warehouse manager</span><span className="block text-xs text-muted-foreground">Can also book expenses</span></span>
+              <Switch id="s-mgr" checked={manager} onCheckedChange={setMgr} />
+            </label>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>

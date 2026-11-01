@@ -4,9 +4,10 @@ import { AlertTriangle, ClipboardCheck, PackagePlus, Scale, Truck } from "lucide
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, SectionTitle, StatCard } from "@/components/app/common";
-import { dayKey, fmtDate } from "@/lib/format";
+import { dayKey, fmtDate, rupees } from "@/lib/format";
 import { Link, navigate } from "@/lib/router";
 import { useStore } from "@/lib/store";
+import { BookExpenseButton } from "./expenses";
 import { StockGrid } from "./stock";
 
 export function WarehouseHome() {
@@ -20,7 +21,7 @@ export function WarehouseHome() {
 
   return (
     <>
-      <PageHeader title={`Good day, ${user?.name.split(" ")[0]}`} description={`Warehouse overview for ${fmtDate(today)}`} />
+      <PageHeader title={`Good day, ${user?.name.split(" ")[0]}`} description={`${user?.manager ? "Warehouse manager" : "Warehouse"} overview for ${fmtDate(today)}`} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Trucks loaded today" value={trucksOut} icon={Truck} onClick={() => navigate("/loads")} highlight />
@@ -33,7 +34,13 @@ export function WarehouseHome() {
         <Button size="xl" variant="outline" asChild><Link href="/approvals"><ClipboardCheck /> Review acknowledgements</Link></Button>
         <Button size="xl" variant="outline" asChild><Link href="/purchases"><PackagePlus /> Record plant receipt</Link></Button>
         <Button size="xl" variant="outline" asChild><Link href="/reconciliation"><Scale /> End of day counts</Link></Button>
+        {user?.manager && <BookExpenseButton size="xl" />}
       </div>
+      {user?.manager && (
+        <p className="-mt-3 mb-6 text-sm text-muted-foreground">
+          Expenses booked today: <b className="tabular-nums text-foreground">{rupees((db.expenses ?? []).filter((e) => e.date === today).reduce((s, e) => s + e.amount, 0))}</b> · <Link href="/expenses" className="underline underline-offset-2">See all expenses</Link>
+        </p>
+      )}
 
       {opsAlerts.length > 0 && (
         <Card className="mb-6 gap-3">

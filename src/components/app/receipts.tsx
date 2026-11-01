@@ -101,7 +101,7 @@ async function processFiles(files: File[], room: number) {
 }
 
 /** Picker used inside the "Record stock receipt" form (files are saved with the purchase). */
-export function ReceiptPicker({ value, onChange }: { value: PendingReceipt[]; onChange: (v: PendingReceipt[]) => void }) {
+export function ReceiptPicker({ value, onChange, title = "Plant receipt", hint = "photo or PDF of the invoice, optional" }: { value: PendingReceipt[]; onChange: (v: PendingReceipt[]) => void; title?: string; hint?: string }) {
   const [busy, setBusy] = React.useState(false);
   const { inputs, pickFile, takePhoto } = useFilePickers(async (files) => {
     setBusy(true);
@@ -111,7 +111,7 @@ export function ReceiptPicker({ value, onChange }: { value: PendingReceipt[]; on
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">Plant receipt <span className="font-normal text-muted-foreground">· photo or PDF of the invoice, optional</span></p>
+        <p className="text-sm font-medium">{title} <span className="font-normal text-muted-foreground">· {hint}</span></p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="sm" onClick={takePhoto} disabled={busy || value.length >= MAX_RECEIPTS_PER_INVOICE}><Camera /> Take photo</Button>
           <Button type="button" variant="outline" size="sm" onClick={pickFile} disabled={busy || value.length >= MAX_RECEIPTS_PER_INVOICE}><Upload /> {busy ? "Reading…" : "Upload file"}</Button>
@@ -134,7 +134,7 @@ export function ReceiptPicker({ value, onChange }: { value: PendingReceipt[]; on
   );
 }
 
-function openPdf(a: Attachment) {
+export function openPdf(a: Attachment) {
   const bin = atob(a.dataUrl.slice(a.dataUrl.indexOf(",") + 1));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);

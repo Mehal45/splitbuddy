@@ -10,6 +10,7 @@ import { AlertsView, FleetView, OwnerDashboard } from "./owner";
 import { ReconciliationView } from "./reconciliation";
 import { ReportsView } from "./reports";
 import { ActivityView } from "./activity";
+import { ExpensesView, ProfitView } from "./expenses";
 import { MovementsView, StockView } from "./stock";
 import { WarehouseHome } from "./warehouse-home";
 import { useStore } from "@/lib/store";
@@ -42,6 +43,8 @@ export const ROUTES: RouteDef[] = [
   { pattern: "/approvals", roles: OW, render: () => <ApprovalsView /> },
   { pattern: "/reconciliation", roles: OW, render: () => <ReconciliationView /> },
   { pattern: "/purchases", roles: OW, render: () => <PurchasesView /> },
+  { pattern: "/expenses", roles: OW, render: () => <ExpensesView /> },
+  { pattern: "/profit", roles: ["owner"], render: () => <ProfitView /> },
   { pattern: "/sales", roles: ["owner"], render: () => <SalesView /> },
   { pattern: "/invoices/:id", roles: ["owner", "warehouse", "customer"], render: (p) => <InvoiceView id={p.id} /> },
   { pattern: "/stock", roles: OW, render: () => <StockView /> },

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, ClipboardCheck, CreditCard, IndianRupee, MapPinOff, PackageX, Scale, TrendingUp, Truck } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, CreditCard, IndianRupee, MapPinOff, PackageX, Scale, TrendingDown, TrendingUp, Truck } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DateRange, EmptyState, PageHeader, SectionTitle, StatCard, useDateRange } from "@/components/app/common";
 import { custName, dayKey, fmtDateShort, rupees, rupeesShort } from "@/lib/format";
 import { Link, navigate } from "@/lib/router";
-import { ALERT_LABEL, driverPerformance, salesByDay, salesTotals, stockFlowByDay, type Alert, type AlertKind } from "@/lib/selectors";
+import { ALERT_LABEL, dailyProfit, driverPerformance, salesByDay, salesTotals, stockFlowByDay, type Alert, type AlertKind } from "@/lib/selectors";
 import { useStore } from "@/lib/store";
 import { useUiStyle } from "@/lib/ui-style";
 import { cn } from "@/lib/utils";
 import { StockGrid } from "./stock";
+import { netText } from "./expenses";
 import { AddTruckButton, StaffCard } from "./team";
 
 const ALERT_ICON: Record<AlertKind, React.ElementType> = { lowStock: PackageX, empties: AlertTriangle, credit: CreditCard, pending: ClipboardCheck, mismatch: Scale, gps: MapPinOff };
@@ -54,6 +55,7 @@ export function OwnerDashboard() {
   const todays = db.deliveries.filter((d) => d.date === today && d.status !== "rejected");
   const pending = db.deliveries.filter((d) => d.status === "pending").length;
   const sales = salesTotals(db, now);
+  const profit = dailyProfit(db, today, today)[0];
   const outstanding = Object.values(balances).reduce((s, b) => s + Math.max(0, b.outstanding), 0);
   const sales30 = React.useMemo(() => salesByDay(db, 30, now), [db, now]);
   const flow = React.useMemo(() => {
@@ -70,11 +72,12 @@ export function OwnerDashboard() {
   return (
     <>
       <PageHeader title={`Good day, ${user?.name.split(" ")[0]}`} description={`Business overview · ${new Date(now).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Kolkata" })}`} />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Today's deliveries" value={todays.length} hint={`${todays.reduce((s, d) => s + Object.values(d.full).reduce((a, b) => a + b, 0), 0)} cylinders`} icon={Truck} onClick={() => navigate("/approvals")} />
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} highlight />
         <StatCard label="Sales this month" value={rupeesShort(sales.month)} icon={TrendingUp} onClick={() => navigate("/reports")} />
+        <StatCard label={profit.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(profit.net)} hint={`Collected ${rupeesShort(profit.collected)} − expenses ${rupeesShort(profit.expenses)}`} icon={profit.net >= 0 ? TrendingUp : TrendingDown} tone={profit.net > 0 ? "success" : profit.net < 0 ? "danger" : "default"} onClick={() => navigate("/profit")} />
         <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone={outstanding > 0 ? "danger" : "default"} onClick={() => navigate("/customers")} />
       </div>
 

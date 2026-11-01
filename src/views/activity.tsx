@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, useDateRange } from "@/components/app/common";
-import { ROLE_LABEL } from "@/components/app/shell";
+import { userRoleLabel } from "@/components/app/shell";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useLookups, useStore } from "@/lib/store";
 import type { AuditAction } from "@/lib/types";
@@ -21,8 +21,9 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   settings_changed: "Settings changed", tally_sync: "Tally sync", demo_reset: "Data cleared / reloaded",
   team_changed: "Team changed", opening_stock: "Opening stock",
   receipt_attached: "Receipt uploaded", receipt_removed: "Receipt removed",
+  expense_added: "Expense booked", expense_deleted: "Expense deleted",
 };
-const SENSITIVE: AuditAction[] = ["login_failed", "settings_changed", "customer_edited", "demo_reset", "delivery_rejected", "view_as", "team_changed", "opening_stock", "receipt_removed"];
+const SENSITIVE: AuditAction[] = ["login_failed", "settings_changed", "customer_edited", "demo_reset", "delivery_rejected", "view_as", "team_changed", "opening_stock", "receipt_removed", "expense_deleted"];
 
 export function ActivityView() {
   const { db, now } = useStore();
@@ -39,7 +40,7 @@ export function ActivityView() {
   const name = (id: string) => {
     if (id === "anonymous") return "Unknown person";
     const u = L.user.get(id);
-    return u ? `${u.name} · ${ROLE_LABEL[u.role]}` : id;
+    return u ? `${u.name} · ${userRoleLabel(u)}` : id;
   };
   const failed24h = log.filter((e) => e.action === "login_failed" && now - new Date(e.ts).getTime() < 864e5).length;
 
