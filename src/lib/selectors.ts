@@ -188,44 +188,145 @@ export function stockFlowByDay(db: DB, days: number, now = Date.now()) {
   return [...map.values()];
 }
 
-// ---------- daily net profit: sales − purchases − expenses ----------
+// ---------- profit & loss (accrual basis, GST excluded) ----------
+//
+// Revenue from operations = sales invoices before GST (GST collected belongs to the government).
+// Cost of cylinders sold   = opening stock + purchases before GST (GST paid is claimed back as
+//                            input tax credit) − closing stock.
+// Stock = full cylinders at the warehouse and on trucks, valued at the weighted average purchase
+// cost (before GST) up to that day. Empty cylinders are returnable containers, not stock for sale.
+// Gross profit − expenses = net profit / (loss) before tax. No depreciation or income tax.
 
-export interface DayProfit {
+export interface DayPL {
   date: string;
-  sales: number; salesCount: number; // sales invoices dated that day (GST inclusive)
-  purchases: number; purchaseCount: number; // plant purchase invoices dated that day (GST inclusive)
+  revenue: number; // sales before GST
+  qtySold: number;
+  purchases: number; // before GST
+  openingValue: number;
+  closingValue: number;
+  cogs: number; // opening + purchases − closing
+  gross: number;
   expenses: number;
-  byCategory: Record<string, number>;
   net: number;
-  pendingSales: number; // bill value of deliveries still waiting for approval (not invoiced yet)
 }
 
-/** Every day from..to (inclusive, YYYY-MM-DD), newest first. */
-export function dailyProfit(db: DB, from: string, to: string): DayProfit[] {
-  const rows = new Map<string, DayProfit>();
-  if (from > to) return [];
-  for (let t = Date.parse(`${to}T00:00:00Z`), stop = Date.parse(`${from}T00:00:00Z`), n = 0; t >= stop && n < 400; t -= 864e5, n++) {
-    const date = new Date(t).toISOString().slice(0, 10);
-    rows.set(date, { date, sales: 0, salesCount: 0, purchases: 0, purchaseCount: 0, expenses: 0, byCategory: {}, net: 0, pendingSales: 0 });
-  }
+export interface PLStatement {
+  from: string; to: string;
+  days: DayPL[]; // newest first
+  revenue: number;
+  revenueBySize: { size: string; qty: number; amount: number }[];
+  gstOnSales: number; // shown as a note only
+  openingQty: number; openingValue: number;
+  purchases: number; purchaseQty: number; gstOnPurchases: number;
+  closingQty: number; closingValue: number;
+  cogs: number; gross: number;
+  expensesByCategory: { category: string; amount: number }[];
+  expenses: number;
+  net: number;
+  pendingSales: number; // deliveries awaiting approval (not invoiced yet), incl GST
+}
+
+const istStart = (d: string) => new Date(`${d}T00:00:00+05:30`).toISOString();
+const istEnd = (d: string) => new Date(`${d}T23:59:59.999+05:30`).toISOString();
+const nextDay = (d: string) => new Date(Date.parse(`${d}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+const isStockLoc = (loc: string) => loc === WH || loc.startsWith("TRUCK:");
+
+export function profitAndLoss(db: DB, from: string, to: string): PLStatement {
+  const sizes = db.settings.sizes;
+  // Weighted average purchase cost (before GST) per size, growing with each purchase
+  const fallback: Record<string, number> = Object.fromEntries(sizes.map((z) => [z.id, z.purchasePrice / (1 + z.purchaseGst / 100)]));
+  const buys = db.invoices.filter((i) => i.kind === "purchase").sort((a, b) => a.date.localeCompare(b.date) || a.ts.localeCompare(b.ts));
+  const cum: Record<string, { qty: number; amt: number }> = {};
+  let bi = 0;
+  const avgUpTo = (date: string) => {
+    while (bi < buys.length && buys[bi].date <= date) {
+      for (const l of buys[bi].lines) {
+        if (!l.qty) continue;
+        const c = (cum[l.size] ??= { qty: 0, amt: 0 });
+        c.qty += l.qty; c.amt += (l.qty * l.rate) / (1 + l.gstRate / 100);
+      }
+      bi++;
+    }
+    return (size: string) => (cum[size]?.qty ? cum[size].amt / cum[size].qty : fallback[size] ?? 0);
+  };
+  // Full cylinders in stock, swept through the movement log in time order
+  // Opening stock entered in the app is stock the business already had, so it counts from the very start
+  const at = (m: (typeof db.movements)[number]) => (m.refType === "opening" ? "" : m.ts);
+  const moves = db.movements.slice().sort((a, b) => (at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : 0));
+  const qty: Record<string, number> = {};
+  let mi = 0;
+  const qtyUpTo = (iso: string, inclusive: boolean) => {
+    while (mi < moves.length && (inclusive ? at(moves[mi]) <= iso : at(moves[mi]) < iso)) {
+      const m = moves[mi++];
+      if (m.state === "full" && isStockLoc(m.from)) qty[m.size] = (qty[m.size] ?? 0) - m.qty;
+      if ((m.toState ?? m.state) === "full" && isStockLoc(m.to)) qty[m.size] = (qty[m.size] ?? 0) + m.qty;
+    }
+    return { ...qty };
+  };
+  const value = (q: Record<string, number>, cost: (s: string) => number) => Object.entries(q).reduce((s, [size, n]) => s + Math.max(0, n) * cost(size), 0);
+  const count = (q: Record<string, number>) => Object.values(q).reduce((s, n) => s + Math.max(0, n), 0);
+
+  const dayBefore = new Date(Date.parse(`${from}T00:00:00Z`) - 864e5).toISOString().slice(0, 10);
+  const openQ = qtyUpTo(istStart(from), false);
+  const openCost = avgUpTo(dayBefore);
+  let prevValue = value(openQ, openCost);
+  const openingValue = prevValue, openingQty = count(openQ);
+
+  const salesByDate = new Map<string, { amt: number; qty: number }>();
+  const buysByDate = new Map<string, number>();
+  const bySize = new Map<string, { qty: number; amount: number }>();
+  let gstOnSales = 0, gstOnPurchases = 0, purchaseQty = 0;
   for (const inv of db.invoices) {
-    const r = rows.get(inv.date);
-    if (!r) continue;
-    if (inv.kind === "sale") { r.sales += inv.total; r.salesCount++; } else { r.purchases += inv.total; r.purchaseCount++; }
+    if (inv.date < from || inv.date > to) continue;
+    if (inv.kind === "sale") {
+      const r = salesByDate.get(inv.date) ?? { amt: 0, qty: 0 };
+      r.amt += inv.taxable; r.qty += inv.lines.reduce((n, l) => n + l.qty, 0);
+      salesByDate.set(inv.date, r);
+      gstOnSales += inv.cgst + inv.sgst + inv.igst;
+      for (const l of inv.lines) {
+        if (!l.qty) continue;
+        const z = bySize.get(l.size) ?? { qty: 0, amount: 0 };
+        z.qty += l.qty; z.amount += (l.qty * l.rate) / (1 + l.gstRate / 100);
+        bySize.set(l.size, z);
+      }
+    } else {
+      buysByDate.set(inv.date, (buysByDate.get(inv.date) ?? 0) + inv.taxable);
+      gstOnPurchases += inv.cgst + inv.sgst + inv.igst;
+      purchaseQty += inv.lines.reduce((n, l) => n + l.qty, 0);
+    }
   }
-  for (const d of db.deliveries) {
-    const r = d.status === "pending" ? rows.get(d.date) : undefined;
-    if (r) r.pendingSales += deliveryBill(db, d);
-  }
+  const expByDate = new Map<string, number>();
+  const byCat = new Map<string, number>();
   for (const e of db.expenses ?? []) {
-    const r = rows.get(e.date);
-    if (!r) continue;
-    r.expenses += e.amount;
-    r.byCategory[e.category] = (r.byCategory[e.category] ?? 0) + e.amount;
+    if (e.date < from || e.date > to) continue;
+    expByDate.set(e.date, (expByDate.get(e.date) ?? 0) + e.amount);
+    byCat.set(e.category, (byCat.get(e.category) ?? 0) + e.amount);
   }
-  for (const r of rows.values()) {
-    r.sales = Math.round(r.sales); r.purchases = Math.round(r.purchases); r.pendingSales = Math.round(r.pendingSales);
-    r.net = r.sales - r.purchases - r.expenses;
+
+  const days: DayPL[] = [];
+  let closeQ = openQ;
+  for (let d = from, n = 0; d <= to && n < 400; d = nextDay(d), n++) {
+    closeQ = qtyUpTo(istEnd(d), true);
+    const closingValue = value(closeQ, avgUpTo(d));
+    const revenue = salesByDate.get(d)?.amt ?? 0;
+    const purchases = buysByDate.get(d) ?? 0;
+    const cogs = prevValue + purchases - closingValue;
+    const expenses = expByDate.get(d) ?? 0;
+    days.push({ date: d, revenue, qtySold: salesByDate.get(d)?.qty ?? 0, purchases, openingValue: prevValue, closingValue, cogs, gross: revenue - cogs, expenses, net: revenue - cogs - expenses });
+    prevValue = closingValue;
   }
-  return [...rows.values()];
+  const sum = (k: keyof DayPL) => days.reduce((s, x) => s + (x[k] as number), 0);
+  const revenue = sum("revenue"), purchases = sum("purchases"), expenses = sum("expenses");
+  const closingValue = prevValue;
+  const cogs = openingValue + purchases - closingValue;
+  let pendingSales = 0;
+  for (const d of db.deliveries) if (d.status === "pending" && d.date >= from && d.date <= to) pendingSales += deliveryBill(db, d);
+  return {
+    from, to, days: days.reverse(), revenue,
+    revenueBySize: sizes.filter((z) => bySize.has(z.id)).map((z) => ({ size: z.id, ...bySize.get(z.id)! })),
+    gstOnSales, openingQty, openingValue, purchases, purchaseQty, gstOnPurchases,
+    closingQty: count(closeQ), closingValue, cogs, gross: revenue - cogs,
+    expensesByCategory: [...byCat.entries()].map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
+    expenses, net: revenue - cogs - expenses, pendingSales,
+  };
 }

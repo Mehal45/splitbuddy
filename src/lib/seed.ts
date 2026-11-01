@@ -59,9 +59,9 @@ const IST = (date: string, h: number, m = 0) =>
 
 export const DEFAULT_SIZES: CylinderSize[] = [
   { id: "5", label: "5 kg", kg: 5, domesticPrice: 335, commercialPrice: 590, purchasePrice: 548, purchaseGst: 18, lowStockThreshold: 20, active: true },
-  { id: "14.2", label: "14.2 kg", kg: 14.2, domesticPrice: 855, commercialPrice: null, purchasePrice: 806, purchaseGst: 5, lowStockThreshold: 60, active: true },
-  { id: "19", label: "19 kg", kg: 19, domesticPrice: null, commercialPrice: 1750, purchasePrice: 1655, purchaseGst: 18, lowStockThreshold: 40, active: true },
-  { id: "47.5", label: "47.5 kg", kg: 47.5, domesticPrice: null, commercialPrice: 4365, purchasePrice: 4130, purchaseGst: 18, lowStockThreshold: 15, active: true },
+  { id: "14.2", label: "14.2 kg", kg: 14.2, domesticPrice: 855, commercialPrice: null, purchasePrice: 782, purchaseGst: 5, lowStockThreshold: 60, active: true },
+  { id: "19", label: "19 kg", kg: 19, domesticPrice: null, commercialPrice: 1750, purchasePrice: 1560, purchaseGst: 18, lowStockThreshold: 40, active: true },
+  { id: "47.5", label: "47.5 kg", kg: 47.5, domesticPrice: null, commercialPrice: 4365, purchasePrice: 4000, purchaseGst: 18, lowStockThreshold: 15, active: true },
 ];
 
 export const AREAS: Record<string, { lat: number; lng: number; pin: string; state?: string }> = {
@@ -451,14 +451,14 @@ export function buildSeed(nowMs = Date.now()): DB {
     for (const date of dates) {
       const dom = Number(date.slice(8, 10));
       const isToday = date === today;
-      for (const t of db.trucks) if (er() < (isToday ? 0.25 : 0.45)) add(date, 8 * 60 + eri(0, 50), "Diesel / fuel", eri(18, 32) * 100, er() < 0.6 ? "cash" : "upi", "Indian Oil, Peenya", "", t.id);
-      add(date, 9 * 60 + eri(0, 60), "Loading / hamali", eri(6, 11) * 100, "cash", "Loading crew");
-      if (!isToday || er() < 0.5) add(date, 16 * 60 + eri(0, 30), "Tea & food", eri(12, 30) * 10, "cash", "Sri Ganesh Tea Stall");
+      for (const t of db.trucks) if (er() < (isToday ? 0.05 : 0.07)) add(date, 8 * 60 + eri(0, 50), "Diesel / fuel", eri(10, 20) * 100, er() < 0.6 ? "cash" : "upi", "Indian Oil, Peenya", "", t.id);
+      add(date, 9 * 60 + eri(0, 60), "Loading / hamali", eri(3, 6) * 100, "cash", "Loading crew");
+      if (!isToday || er() < 0.5) add(date, 16 * 60 + eri(0, 30), "Tea & food", eri(8, 20) * 10, "cash", "Sri Ganesh Tea Stall");
       if (er() < 0.12) add(date, 11 * 60 + eri(0, 90), "Tolls & parking", eri(3, 12) * 10 * 5, "upi", "FASTag recharge");
       if (er() < 0.06) { const t = db.trucks[eri(0, db.trucks.length - 1)]; add(date, 13 * 60 + eri(0, 120), "Truck repair & maintenance", eri(15, 90) * 100, er() < 0.5 ? "cash" : "upi", "Raju Auto Works", "Tyre / brake work", t?.id); }
-      if (dom === 1) add(date, 10 * 60, "Salaries & wages", 3_85_000, "bank", "Staff & drivers", "Monthly salaries");
-      if (dom === 5) add(date, 10 * 60 + 30, "Rent", 65_000, "bank", "Warehouse landlord", "Godown rent");
-      if (dom === 10) add(date, 12 * 60, "Electricity & water", eri(70, 110) * 100, "upi", "BESCOM");
+      if (dom === 7) add(date, 10 * 60, "Salaries & wages", 85_000, "bank", "Staff & drivers", "Monthly salaries");
+      if (dom === 5) add(date, 10 * 60 + 30, "Rent", 25_000, "bank", "Warehouse landlord", "Godown rent");
+      if (dom === 10) add(date, 12 * 60, "Electricity & water", eri(30, 55) * 100, "upi", "BESCOM");
       if (dom === 12) add(date, 12 * 60 + 15, "Phone & internet", 2_360, "upi", "Airtel");
       if (dom === 20 && er() < 0.8) add(date, 15 * 60, "Office & stationery", eri(8, 25) * 100, "cash", "Peenya Stationers", "Bill books, printer paper");
     }

@@ -73,6 +73,7 @@ const StoreCtx = React.createContext<StoreValue | null>(null);
 // Latest committed DB, read by actions (kept outside React state so rapid
 // consecutive actions never work on a stale copy).
 let currentDb: DB | null = null;
+let lastRaw: string | null = null; // exact text last read from / written to storage
 
 function readJSON<T>(key: string): T | null {
   try {
@@ -91,6 +92,10 @@ function writeJSON(key: string, value: unknown) {
   } catch {
     return false;
   }
+}
+
+function writeDb(d: DB) {
+  try { const raw = JSON.stringify(d); localStorage.setItem(DB_KEY, raw); lastRaw = raw; return true; } catch { return false; }
 }
 
 // Stored data can be edited, damaged or from an older version. Anything that
@@ -129,6 +134,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     const { db: loaded, recovered } = loadDB();
     currentDb = loaded;
+    try { lastRaw = localStorage.getItem(DB_KEY); } catch { /* storage blocked */ }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate from localStorage once on mount
     setDb(loaded);
     const sess = readSession();
@@ -142,6 +148,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const next = JSON.parse(e.newValue) as unknown;
         if (!looksValid(next)) return;
         currentDb = upgrade(next);
+        lastRaw = e.newValue;
         setDb(currentDb);
         setNow(Date.now());
       } catch { /* ignore a half-written value */ }
@@ -163,7 +170,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     currentDb = draft;
     setDb(draft);
     setNow(Date.now());
-    if (!writeJSON(DB_KEY, draft)) {
+    if (!writeDb(draft)) {
       toast.warning("Saved for this session only: browser storage is full (try a smaller photo or reset demo data).");
     } else if (success) {
       toast.success(success);
@@ -184,7 +191,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     currentDb = next;
     setDb(next);
     setNow(Date.now());
-    writeJSON(DB_KEY, next);
+    writeDb(next);
     toast.success(message);
   }, []);
 

@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DateRange, EmptyState, PageHeader, SectionTitle, StatCard, useDateRange } from "@/components/app/common";
 import { custName, dayKey, fmtDateShort, rupees, rupeesShort } from "@/lib/format";
 import { Link, navigate } from "@/lib/router";
-import { ALERT_LABEL, dailyProfit, driverPerformance, salesByDay, salesTotals, stockFlowByDay, type Alert, type AlertKind } from "@/lib/selectors";
+import { ALERT_LABEL, driverPerformance, profitAndLoss, salesByDay, salesTotals, stockFlowByDay, type Alert, type AlertKind } from "@/lib/selectors";
 import { useStore } from "@/lib/store";
 import { useUiStyle } from "@/lib/ui-style";
 import { cn } from "@/lib/utils";
@@ -55,7 +55,7 @@ export function OwnerDashboard() {
   const todays = db.deliveries.filter((d) => d.date === today && d.status !== "rejected");
   const pending = db.deliveries.filter((d) => d.status === "pending").length;
   const sales = salesTotals(db, now);
-  const profit = dailyProfit(db, today, today)[0];
+  const profit = React.useMemo(() => profitAndLoss(db, today.slice(0, 7) + "-01", today), [db, today]);
   const outstanding = Object.values(balances).reduce((s, b) => s + Math.max(0, b.outstanding), 0);
   const sales30 = React.useMemo(() => salesByDay(db, 30, now), [db, now]);
   const flow = React.useMemo(() => {
@@ -77,7 +77,7 @@ export function OwnerDashboard() {
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} highlight />
         <StatCard label="Sales this month" value={rupeesShort(sales.month)} icon={TrendingUp} onClick={() => navigate("/reports")} />
-        <StatCard label={profit.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(profit.net)} hint={`Sales − purchases − expenses`} icon={profit.net >= 0 ? TrendingUp : TrendingDown} tone={profit.net > 0 ? "success" : profit.net < 0 ? "danger" : "default"} onClick={() => navigate("/profit")} />
+        <StatCard label={Math.round(profit.net) >= 0 ? "Net profit this month" : "Net loss this month"} value={netText(profit.net)} hint="Before GST and tax" icon={profit.net >= 0 ? TrendingUp : TrendingDown} tone={profit.net > 0 ? "success" : profit.net < 0 ? "danger" : "default"} onClick={() => navigate("/profit")} />
         <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone={outstanding > 0 ? "danger" : "default"} onClick={() => navigate("/customers")} />
       </div>
 

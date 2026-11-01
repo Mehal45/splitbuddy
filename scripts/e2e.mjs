@@ -27,7 +27,7 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 page.on("console", (m) => { if (m.type() === "error" && /Content Security Policy|Refused to/i.test(m.text())) errors.push(`CSP: ${m.text()}`); });
 const step = (s) => console.log("✓", s);
-const db = () => page.evaluate(() => JSON.parse(localStorage.getItem("anmol-gas-demo:db")));
+const db = (pg = page) => pg.evaluate(() => JSON.parse(localStorage.getItem("anmol-gas-demo:db")));
 
 // Owner page is PIN protected
 await page.goto(base);
@@ -309,17 +309,26 @@ if ((await db()).expenses.length !== exBefore + 1 || ex.amount !== 2500 || ex.mo
 step(`owner booked expense ${ex.no} ₹2,500 diesel by UPI with bill photo`);
 
 await page.goto(base + "#/profit");
+await page.getByText("Statement of profit & loss").waitFor();
+await page.getByRole("button", { name: "Today", exact: true }).click();
 const pdb = await db();
 const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-const sumInv = (k) => Math.round(pdb.invoices.filter((i) => i.kind === k && i.date === todayKey).reduce((n, i) => n + i.total, 0));
-const coll = sumInv("sale"), bought = sumInv("purchase");
+const val = async (id) => Number(await page.getByTestId(id).getAttribute("data-value"));
+const salesEx = Math.round(pdb.invoices.filter((i) => i.kind === "sale" && i.date === todayKey).reduce((n, i) => n + i.taxable, 0));
 const spent = pdb.expenses.filter((e) => e.date === todayKey).reduce((n, e) => n + e.amount, 0);
-const fmt = (n) => (n < 0 ? "−\u00a0" : "") + "₹" + Math.abs(n).toLocaleString("en-IN");
-await page.getByText(fmt(coll - bought - spent)).first().waitFor();
-step(`daily profit today = sales ${fmt(coll)} − purchases ${fmt(bought)} − expenses ${fmt(spent)} = ${fmt(coll - bought - spent)}`);
+const [rev, cogs, gross, exp, net] = [await val("pl-revenue"), await val("pl-cogs"), await val("pl-gross"), await val("pl-expenses"), await val("pl-net")];
+if (Math.abs(rev - salesEx) > 1) throw new Error(`revenue should be sales before GST: ${rev} vs ${salesEx}`);
+if (exp !== spent) throw new Error("expenses mismatch");
+if (Math.abs(gross - (rev - cogs)) > 1 || Math.abs(net - (rev - cogs - exp)) > 1) throw new Error("P&L doesn't add up");
+if (cogs <= 0 || cogs >= rev * 1.2) throw new Error(`cost of cylinders sold looks wrong: ${cogs} vs revenue ${rev}`);
+step(`P&L today: revenue ₹${rev} (before GST) − cost of cylinders sold ₹${cogs} − expenses ₹${exp} = ₹${net}`);
+await page.getByRole("button", { name: /^FY / }).click();
+await page.getByText("Month by month").waitFor();
+const fyNet = await val("pl-net");
+step(`financial-year P&L shown month by month (net ₹${fyNet})`);
 const [pdl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
 const csvText = fs.readFileSync(await pdl.path(), "utf8");
-if (!csvText.includes("Net profit / loss")) throw new Error("profit CSV missing header");
+if (!csvText.includes("Net profit / (loss) before tax") || !csvText.includes("Cost of cylinders sold")) throw new Error("P&L CSV missing lines");
 step(`profit CSV export: ${pdl.suggestedFilename()}`);
 
 // Owner deletes the expense: gone, and the activity log keeps it
@@ -441,8 +450,8 @@ await custPage.getByRole("radio", { name: /Evening/ }).click();
 await custPage.getByLabel(/Note for the agency/).fill("Ring the bell twice");
 await custPage.getByRole("button", { name: "Place order" }).click();
 await custPage.getByText("Order placed. The agency has been notified.").waitFor();
-const placed = (await db()).orders.at(-1);
-if (placed.customerId !== "c1" || placed.status !== "new" || Object.values(placed.lines)[0] !== 2 || placed.slot !== "evening") throw new Error("order not saved right");
+const placed = (await db(custPage)).orders.at(-1);
+if (placed.customerId !== "c1" || placed.status !== "new" || Object.values(placed.lines)[0] !== 2 || placed.slot !== "evening") throw new Error("order not saved right: " + JSON.stringify(placed));
 step(`customer placed ${placed.no} (2 cylinders, tomorrow evening) from the app`);
 
 // staff tab (already open) pops up at once, without a refresh
@@ -461,11 +470,11 @@ await custPage.goto(base + "#/me/order");
 await custPage.getByRole("button", { name: /^Increase/ }).first().click();
 await custPage.getByRole("button", { name: "Place order" }).click();
 await custPage.getByText("Order placed. The agency has been notified.").waitFor();
-const second = (await db()).orders.at(-1);
+const second = (await db(custPage)).orders.at(-1);
 await custPage.locator("[data-slot=card]", { hasText: second.no }).getByRole("button", { name: "Cancel order" }).click();
 await custPage.getByRole("dialog").getByRole("button", { name: "Cancel order" }).click();
 await custPage.getByText("Order cancelled").first().waitFor();
-if ((await db()).orders.find((o) => o.id === second.id).status !== "cancelled") throw new Error("cancel failed");
+{ const od = (await db(custPage)).orders; if (od.find((o) => o.id === second.id)?.status !== "cancelled") throw new Error("cancel failed: " + JSON.stringify(od.slice(-3).map((o) => [o.id, o.no, o.status]))); }
 if (await custPage.locator("[data-slot=card]", { hasText: placed.no }).getByRole("button", { name: "Cancel order" }).count()) throw new Error("accepted order must not be cancellable by customer");
 await page.getByRole("button", { name: "Later" }).click().catch(() => {});
 step("customer cancelled a waiting order; accepted orders can't be cancelled from the app");

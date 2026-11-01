@@ -18,9 +18,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, PhoneRow, StatCard, useDateRange } from "@/components/app/common";
 import { openPdf, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
 import { addExpense, canBookExpenses, deleteExpense, isSafeAttachment, logAudit } from "@/lib/engine";
-import { dayKey, fmtDate, fmtDateShort, fmtDateTime, rupees, rupeesShort } from "@/lib/format";
-import { useActorId } from "@/lib/hooks";
-import { dailyProfit, type DayProfit } from "@/lib/selectors";
+import { dayKey, fmtDate, fmtDateShort, fmtDateTime, fmtMonth, rupees, rupeesShort } from "@/lib/format";
+import { useActorId, useSizes } from "@/lib/hooks";
+import { profitAndLoss, type PLStatement } from "@/lib/selectors";
 import { useLookups, useStore } from "@/lib/store";
 import { EXPENSE_CATEGORIES, type Attachment, type Expense, type ExpenseCategory } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -186,7 +186,7 @@ function ExpenseDetail({ expense, onClose }: { expense: Expense | null; onClose:
       </Dialog>
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Delete this expense?</DialogTitle><DialogDescription>{e?.no} ({e && rupees(e.amount)}) will be removed and that day&apos;s profit goes up by the same amount. The activity log keeps a record of it.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Delete this expense?</DialogTitle><DialogDescription>{e?.no} ({e && rupees(e.amount)}) will be removed. The activity log keeps a record of it.</DialogDescription></DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirm(false)}>Cancel</Button>
             <Button variant="destructive" onClick={remove}>Delete</Button>
@@ -301,145 +301,189 @@ export function ExpensesView() {
   );
 }
 
-// ---------- daily profit ----------
+// ---------- profit & loss ----------
 
 const axisMoney = (v: number) => {
   const a = Math.abs(v), sign = v < 0 ? "−" : "";
-  return a >= 1e5 ? `${sign}₹${+(a / 1e5).toFixed(1)}L` : a >= 1000 ? `${sign}₹${Math.round(a / 1000)}k` : `${sign}₹${a}`;
+  return a >= 1e5 ? `${sign}₹${+(a / 1e5).toFixed(1)}L` : a >= 1000 ? `${sign}₹${Math.round(a / 1000)}k` : `${sign}₹${Math.round(a)}`;
 };
-const netClass = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "");
-export const netText = (n: number) => (n < 0 ? `−\u00a0${rupees(-n)}` : rupees(n));
+const netClass = (n: number) => (Math.round(n) > 0 ? "text-success" : Math.round(n) < 0 ? "text-destructive" : "");
+/** Whole rupees; losses shown as − ₹x (non-breaking so it never wraps). */
+export const netText = (n: number) => { const r = Math.round(n); return r < 0 ? `−\u00a0${rupees(-r)}` : rupees(r); };
+const R0 = (n: number) => rupees(Math.round(n));
 
 function ProfitTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
-      <p className="mb-1 font-medium">{label ? fmtDateShort(label) : ""}</p>
+      <p className="mb-1 font-medium">{label && label.length === 10 ? fmtDateShort(label) : label}</p>
       {payload.map((p) => <p key={p.name} className="flex items-center gap-2"><span className="inline-block size-2.5 rounded-sm" style={{ background: p.color }} />{p.name}: <b className="tabular-nums">{netText(p.value)}</b></p>)}
     </div>
   );
 }
 
-function DayBreakup({ day, onClose }: { day: DayProfit | null; onClose: () => void }) {
-  const { db } = useStore();
-  const L = useLookups();
-  const list = day ? (db.expenses ?? []).filter((e) => e.date === day.date).sort((a, b) => b.amount - a.amount) : [];
-  const buys = day ? db.invoices.filter((i) => i.kind === "purchase" && i.date === day.date) : [];
+// Indian financial year: 1 April to 31 March
+const fyStart = (d: string) => { const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)); return `${m >= 4 ? y : y - 1}-04-01`; };
+const shiftDay = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+const fyLabel = (d: string) => { const s = Number(fyStart(d).slice(0, 4)); return `FY ${s}-${String(s + 1).slice(2)}`; };
+
+function PLLine({ label, value, strong, indent, muted, testId, negative }: { label: React.ReactNode; value: number; strong?: boolean; indent?: boolean; muted?: boolean; testId?: string; negative?: boolean }) {
   return (
-    <Dialog open={!!day} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
-        {day && (
-          <>
-            <DialogHeader><DialogTitle>{fmtDate(day.date)}</DialogTitle><DialogDescription>Sales − purchases − expenses for the day</DialogDescription></DialogHeader>
-            <dl className="grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
-              <dt className="font-medium">Sales <span className="font-normal text-muted-foreground">({day.salesCount} invoices)</span></dt><dd className="text-right font-medium tabular-nums">{rupees(day.sales)}</dd>
-              {buys.map((i) => (
-                <React.Fragment key={i.id}>
-                  <dt className="text-muted-foreground">− Purchase {i.no} · {i.lines.reduce((n, l) => n + l.qty, 0)} cylinders</dt>
-                  <dd className="text-right tabular-nums text-muted-foreground">{rupees(i.total)}</dd>
-                </React.Fragment>
-              ))}
-              <dt className="font-medium">Total purchases</dt><dd className="text-right font-medium tabular-nums">{rupees(day.purchases)}</dd>
-              {list.map((e) => (
-                <React.Fragment key={e.id}>
-                  <dt className="text-muted-foreground">− {e.category}{e.truckId ? ` · ${L.truck.get(e.truckId)?.regNo ?? ""}` : ""}{e.paidTo ? ` · ${e.paidTo}` : ""}</dt>
-                  <dd className="text-right tabular-nums text-muted-foreground">{rupees(e.amount)}</dd>
-                </React.Fragment>
-              ))}
-              <dt className="font-medium">Total expenses</dt><dd className="text-right font-medium tabular-nums">{rupees(day.expenses)}</dd>
-              <dt className="border-t pt-2 text-base font-semibold">{day.net >= 0 ? "Net profit" : "Net loss"}</dt>
-              <dd className={cn("border-t pt-2 text-right text-base font-semibold tabular-nums", netClass(day.net))}>{netText(day.net)}</dd>
-            </dl>
-            {day.pendingSales > 0 && <p className="text-xs text-muted-foreground">Deliveries worth {rupees(day.pendingSales)} are still waiting for approval. They become sales once approved.</p>}
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+    <>
+      <dt className={cn(indent && "pl-4", muted && "text-muted-foreground", strong && "font-semibold")}>{label}</dt>
+      <dd data-testid={testId} data-value={Math.round(value)} className={cn("text-right tabular-nums", muted && "text-muted-foreground", strong && "font-semibold")}>{negative ? `(${R0(value)})` : R0(value)}</dd>
+    </>
   );
 }
 
+function Statement({ pl, sizes }: { pl: PLStatement; sizes: { id: string; label: string }[] }) {
+  const label = (id: string) => sizes.find((z) => z.id === id)?.label ?? `${id} kg`;
+  const margin = pl.revenue ? (pl.gross / pl.revenue) * 100 : 0;
+  return (
+    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
+      <dt className="col-span-2 pt-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">I. Revenue from operations</dt>
+      {pl.revenueBySize.map((x) => <PLLine key={x.size} indent muted label={`Sale of ${label(x.size)} refills · ${x.qty} cyl.`} value={x.amount} />)}
+      <PLLine strong label="Total revenue (before GST)" value={pl.revenue} testId="pl-revenue" />
+
+      <dt className="col-span-2 pt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">II. Cost of cylinders sold</dt>
+      <PLLine indent muted label={`Opening stock · ${pl.openingQty} full cyl.`} value={pl.openingValue} />
+      <PLLine indent muted label={`Add: Purchases from plant · ${pl.purchaseQty} cyl. (before GST)`} value={pl.purchases} />
+      <PLLine indent muted negative label={`Less: Closing stock · ${pl.closingQty} full cyl.`} value={pl.closingValue} />
+      <PLLine strong label="Cost of cylinders sold" value={pl.cogs} testId="pl-cogs" />
+
+      <dt className="border-t pt-2 font-semibold">Gross profit (I − II) <span className="font-normal text-muted-foreground">· {margin.toFixed(1)}% margin</span></dt>
+      <dd data-testid="pl-gross" data-value={Math.round(pl.gross)} className={cn("border-t pt-2 text-right font-semibold tabular-nums", netClass(pl.gross))}>{netText(pl.gross)}</dd>
+
+      <dt className="col-span-2 pt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">III. Operating expenses</dt>
+      {pl.expensesByCategory.length === 0 && <dt className="col-span-2 pl-4 text-muted-foreground">No expenses booked</dt>}
+      {pl.expensesByCategory.map((x) => <PLLine key={x.category} indent muted label={x.category} value={x.amount} />)}
+      <PLLine strong label="Total expenses" value={pl.expenses} testId="pl-expenses" />
+
+      <dt className="border-t-2 border-foreground/70 pt-2 text-base font-bold">{Math.round(pl.net) >= 0 ? "Net profit" : "Net loss"} before tax (I − II − III)</dt>
+      <dd data-testid="pl-net" data-value={Math.round(pl.net)} className={cn("border-t-2 border-foreground/70 pt-2 text-right text-base font-bold tabular-nums", netClass(pl.net))}>{netText(pl.net)}</dd>
+    </dl>
+  );
+}
+
+type Preset = "today" | "yesterday" | "month" | "lastMonth" | "fy" | "custom";
+
 export function ProfitView() {
   const { db } = useStore();
-  const r = useDateRange(7);
-  const [open, setOpen] = React.useState<DayProfit | null>(null);
+  const sizes = useSizes();
   const today = dayKey();
-  const todayRow = React.useMemo(() => dailyProfit(db, today, today)[0], [db, today]);
-  const rows = React.useMemo(() => dailyProfit(db, r.from, r.to), [db, r.from, r.to]);
-  const t = rows.reduce((a, x) => ({ sales: a.sales + x.sales, purchases: a.purchases + x.purchases, expenses: a.expenses + x.expenses, net: a.net + x.net, pending: a.pending + x.pendingSales }), { sales: 0, purchases: 0, expenses: 0, net: 0, pending: 0 });
-  const chart = rows.slice().reverse().map((x) => ({ date: x.date, Sales: x.sales, Purchases: x.purchases, Expenses: x.expenses, Net: x.net }));
-  const exportCsv = () => downloadCSV(`daily_profit_${r.from}_${r.to}.csv`, [
-    ["Date", "Sales (incl GST)", "Purchases (incl GST)", "Expenses", "Net profit / loss", "Deliveries awaiting approval (not counted)"],
-    ...rows.map((x) => [x.date, x.sales, x.purchases, x.expenses, x.net, x.pendingSales]),
-    ["Total", t.sales, t.purchases, t.expenses, t.net, t.pending],
+  const [preset, setPreset] = React.useState<Preset>("month");
+  const [custom, setCustom] = React.useState({ from: shiftDay(today, -6), to: today });
+  const thisMonth = today.slice(0, 7) + "-01";
+  const lastMonthStart = shiftDay(thisMonth, -1).slice(0, 7) + "-01";
+  const range = preset === "today" ? { from: today, to: today }
+    : preset === "yesterday" ? { from: shiftDay(today, -1), to: shiftDay(today, -1) }
+    : preset === "month" ? { from: thisMonth, to: today }
+    : preset === "lastMonth" ? { from: lastMonthStart, to: shiftDay(thisMonth, -1) }
+    : preset === "fy" ? { from: fyStart(today), to: today }
+    : custom;
+  const pl = profitAndLoss(db, range.from, range.to);
+  const monthly = pl.days.length > 62;
+  const rows = (() => {
+    if (!monthly) return pl.days.map((d) => ({ key: d.date, label: fmtDateShort(d.date), revenue: d.revenue, cogs: d.cogs, gross: d.gross, expenses: d.expenses, net: d.net }));
+    const m = new Map<string, { key: string; label: string; revenue: number; cogs: number; gross: number; expenses: number; net: number }>();
+    for (const d of pl.days) {
+      const k = d.date.slice(0, 7);
+      const r = m.get(k) ?? { key: k, label: fmtMonth(k), revenue: 0, cogs: 0, gross: 0, expenses: 0, net: 0 };
+      r.revenue += d.revenue; r.cogs += d.cogs; r.gross += d.gross; r.expenses += d.expenses; r.net += d.net;
+      m.set(k, r);
+    }
+    return [...m.values()];
+  })();
+  const chart = rows.slice().reverse().map((x) => ({ date: monthly ? x.label : x.key, "Gross profit": Math.round(x.gross), Expenses: Math.round(x.expenses), "Net profit": Math.round(x.net) }));
+  const periodText = range.from === range.to ? fmtDate(range.from) : `${fmtDate(range.from)} – ${fmtDate(range.to)}`;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const exportCsv = () => downloadCSV(`profit_and_loss_${range.from}_${range.to}.csv`, [
+    [`${db.settings.agencyName} · Profit & loss statement`], [`Period: ${periodText}`], ["All amounts in ₹, before GST"], [],
+    ["I. Revenue from operations"], ...pl.revenueBySize.map((x) => [`Sale of ${x.size} kg refills (${x.qty} cyl.)`, r2(x.amount)]), ["Total revenue", r2(pl.revenue)], [],
+    ["II. Cost of cylinders sold"], [`Opening stock (${pl.openingQty} full cyl.)`, r2(pl.openingValue)], [`Add: Purchases (${pl.purchaseQty} cyl.)`, r2(pl.purchases)], [`Less: Closing stock (${pl.closingQty} full cyl.)`, -r2(pl.closingValue)], ["Cost of cylinders sold", r2(pl.cogs)], [],
+    ["Gross profit", r2(pl.gross)], [],
+    ["III. Operating expenses"], ...pl.expensesByCategory.map((x) => [x.category, x.amount]), ["Total expenses", pl.expenses], [],
+    ["Net profit / (loss) before tax", r2(pl.net)], [],
+    [monthly ? "Month" : "Date", "Revenue", "Cost of cylinders sold", "Gross profit", "Expenses", "Net profit / (loss)"],
+    ...rows.map((x) => [monthly ? x.key : x.key, r2(x.revenue), r2(x.cogs), r2(x.gross), x.expenses, r2(x.net)]),
   ]);
+  const presets: [Preset, string][] = [["today", "Today"], ["yesterday", "Yesterday"], ["month", "This month"], ["lastMonth", "Last month"], ["fy", fyLabel(today)], ["custom", "Custom"]];
 
   return (
     <>
-      <PageHeader title="Daily profit" description="Net profit or loss = that day's sales − purchases from the plant − expenses. Only the owner can see this page." actions={<BookExpenseButton />} />
+      <PageHeader title="Profit & loss" description="Revenue − cost of cylinders sold − expenses, before GST and before income tax. Only the owner can see this." actions={<><ExportButton onClick={exportCsv} /><BookExpenseButton /></>} />
+      <div className="mb-4 flex flex-wrap gap-1.5">
+        {presets.map(([k, l]) => <Button key={k} size="sm" variant={preset === k ? "default" : "outline"} onClick={() => setPreset(k)}>{l}</Button>)}
+      </div>
+      {preset === "custom" && <div className="mb-4"><DateRange from={custom.from} to={custom.to} onChange={(from, to) => setCustom({ from, to })} /></div>}
+
       <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Sales today" value={rupees(todayRow.sales)} hint={`${todayRow.salesCount} invoices`} icon={Wallet} onClick={() => setOpen(todayRow)} />
-        <StatCard label="Purchases today" value={rupees(todayRow.purchases)} hint={`${todayRow.purchaseCount} plant receipts`} icon={IndianRupee} onClick={() => setOpen(todayRow)} />
-        <StatCard label="Expenses today" value={rupees(todayRow.expenses)} icon={Receipt} tone={todayRow.expenses ? "warning" : "default"} onClick={() => setOpen(todayRow)} />
-        <StatCard label={todayRow.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(todayRow.net)} icon={todayRow.net >= 0 ? TrendingUp : TrendingDown} tone={todayRow.net > 0 ? "success" : todayRow.net < 0 ? "danger" : "default"} highlight onClick={() => setOpen(todayRow)}
-          hint={todayRow.pendingSales > 0 ? `+ ${rupees(todayRow.pendingSales)} awaiting approval` : undefined} />
+        <StatCard label="Revenue (before GST)" value={netText(pl.revenue)} hint={periodText} icon={Wallet} />
+        <StatCard label="Gross profit" value={netText(pl.gross)} hint={pl.revenue ? `${((pl.gross / pl.revenue) * 100).toFixed(1)}% of revenue` : undefined} icon={IndianRupee} />
+        <StatCard label="Expenses" value={netText(pl.expenses)} icon={Receipt} tone={pl.expenses ? "warning" : "default"} />
+        <StatCard label={Math.round(pl.net) >= 0 ? "Net profit" : "Net loss"} value={netText(pl.net)} icon={pl.net >= 0 ? TrendingUp : TrendingDown} tone={Math.round(pl.net) > 0 ? "success" : Math.round(pl.net) < 0 ? "danger" : "default"} highlight
+          hint={pl.pendingSales > 0 ? `+ deliveries worth ${R0(pl.pendingSales)} awaiting approval` : "before tax"} />
       </div>
 
-      <Card>
-        <CardHeader className="gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div><CardTitle>Day by day</CardTitle><CardDescription className="mt-1">Tap a day to see each purchase and expense.</CardDescription></div>
-            <ExportButton onClick={exportCsv} />
-          </div>
-          <DateRange from={r.from} to={r.to} onChange={r.set} />
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {rows.length > 1 && (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chart} margin={{ left: 0, right: 8, top: 8 }}>
-                  <CartesianGrid vertical={false} stroke="var(--border)" />
-                  <XAxis dataKey="date" tickFormatter={(d) => fmtDateShort(d)} stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} minTickGap={16} />
-                  <YAxis tickFormatter={axisMoney} stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} width={56} />
-                  <Tooltip content={<ProfitTooltip />} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Sales" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="Purchases" fill="var(--warning)" radius={[3, 3, 0, 0]} maxBarSize={24} />
-                  <Bar dataKey="Expenses" fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} />
-                  <Line dataKey="Net" stroke="var(--foreground)" strokeWidth={2} dot={{ r: 2.5 }} type="monotone" />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-          <Table className="text-xs sm:text-sm">
-            <TableHeader><TableRow>
-              <TableHead>Date</TableHead><TableHead className="text-right">Sales</TableHead><TableHead className="hidden text-right sm:table-cell">Purchases</TableHead>
-              <TableHead className="hidden text-right sm:table-cell">Expenses</TableHead><TableHead className="text-right sm:hidden">Purchases + expenses</TableHead><TableHead className="text-right"><span className="sm:hidden">Net</span><span className="hidden sm:inline">Net profit / loss</span></TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {rows.map((x) => (
-                <TableRow key={x.date} className="cursor-pointer" onClick={() => setOpen(x)}>
-                  <TableCell className="whitespace-nowrap">{fmtDateShort(x.date)}{x.date === today && <Badge variant="secondary" className="ml-1.5 hidden sm:inline-flex">Today</Badge>}</TableCell>
-                  <TableCell className="text-right tabular-nums">{rupees(x.sales)}</TableCell>
-                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.purchases)}</TableCell>
-                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.expenses)}</TableCell>
-                  <TableCell className="text-right tabular-nums sm:hidden">{rupees(x.purchases + x.expenses)}</TableCell>
-                  <TableCell className={cn("text-right font-semibold tabular-nums", netClass(x.net))}>{netText(x.net)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFooter><TableRow>
-              <TableCell>Total</TableCell><TableCell className="text-right tabular-nums">{rupees(t.sales)}</TableCell><TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.purchases)}</TableCell>
-              <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.expenses)}</TableCell>
-              <TableCell className="text-right tabular-nums sm:hidden">{rupees(t.purchases + t.expenses)}</TableCell>
-              <TableCell className={cn("text-right font-semibold tabular-nums", netClass(t.net))}>{netText(t.net)}</TableCell>
-            </TableRow></TableFooter>
-          </Table>
-          <p className="text-xs text-muted-foreground">
-            Sales and purchases are invoice amounts including GST, by invoice date. Plant purchases count on the day the stock is received, so days with a plant receipt can show a loss.{t.pending > 0 && ` Deliveries worth ${rupees(t.pending)} are waiting for approval and aren't counted yet.`}
-          </p>
-        </CardContent>
-      </Card>
-      <DayBreakup day={open} onClose={() => setOpen(null)} />
+      <div className="grid gap-6 xl:grid-cols-5">
+        <Card className="xl:col-span-2">
+          <CardHeader><CardTitle>Statement of profit & loss</CardTitle><CardDescription className="mt-1">{db.settings.agencyName} · {periodText}</CardDescription></CardHeader>
+          <CardContent>
+            <Statement pl={pl} sizes={sizes} />
+            <ul className="mt-5 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+              <li>GST is not income or cost: GST collected on sales ({R0(pl.gstOnSales)}) is paid to the government, and GST on plant purchases ({R0(pl.gstOnPurchases)}) is claimed back as input tax credit. See Reports → GST summary.</li>
+              <li>Stock = full cylinders at the warehouse and on trucks, valued at the average purchase cost before GST. Shortages and defective cylinders show up as a higher cost of cylinders sold.</li>
+              <li>Empty cylinders and customer security deposits are not income. Expenses are counted at the full bill amount on the day they were paid.</li>
+              <li>Sales are counted when the delivery is approved and invoiced{pl.pendingSales > 0 ? `; deliveries worth ${R0(pl.pendingSales)} (incl. GST) are still waiting for approval` : ""}. Depreciation and income tax are not included; your CA adds them in the final accounts.</li>
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card className="xl:col-span-3">
+          <CardHeader><CardTitle>{monthly ? "Month by month" : "Day by day"}</CardTitle><CardDescription className="mt-1">Net = gross profit − expenses</CardDescription></CardHeader>
+          <CardContent className="space-y-6">
+            {rows.length > 1 && (
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={chart} margin={{ left: 0, right: 8, top: 8 }}>
+                    <CartesianGrid vertical={false} stroke="var(--border)" />
+                    <XAxis dataKey="date" tickFormatter={(d: string) => (d.length === 10 ? fmtDateShort(d) : d)} stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} minTickGap={16} />
+                    <YAxis tickFormatter={axisMoney} stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} width={56} />
+                    <Tooltip content={<ProfitTooltip />} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="Gross profit" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={22} />
+                    <Bar dataKey="Expenses" fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={22} />
+                    <Line dataKey="Net profit" stroke="var(--foreground)" strokeWidth={2} dot={{ r: 2 }} type="monotone" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            <Table className="text-xs sm:text-sm">
+              <TableHeader><TableRow>
+                <TableHead>{monthly ? "Month" : "Date"}</TableHead><TableHead className="hidden text-right sm:table-cell">Revenue</TableHead><TableHead className="hidden text-right md:table-cell">Cost of sales</TableHead>
+                <TableHead className="text-right">Gross</TableHead><TableHead className="text-right">Expenses</TableHead><TableHead className="text-right">Net</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {rows.map((x) => (
+                  <TableRow key={x.key}>
+                    <TableCell className="whitespace-nowrap">{x.label}{x.key === today && <Badge variant="secondary" className="ml-1.5 hidden sm:inline-flex">Today</Badge>}</TableCell>
+                    <TableCell className="hidden text-right tabular-nums sm:table-cell">{R0(x.revenue)}</TableCell>
+                    <TableCell className="hidden text-right tabular-nums md:table-cell">{R0(x.cogs)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{netText(x.gross)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{R0(x.expenses)}</TableCell>
+                    <TableCell className={cn("text-right font-semibold tabular-nums", netClass(x.net))}>{netText(x.net)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+              <TableFooter><TableRow>
+                <TableCell>Total</TableCell><TableCell className="hidden text-right tabular-nums sm:table-cell">{R0(pl.revenue)}</TableCell><TableCell className="hidden text-right tabular-nums md:table-cell">{R0(pl.cogs)}</TableCell>
+                <TableCell className="text-right tabular-nums">{netText(pl.gross)}</TableCell><TableCell className="text-right tabular-nums">{R0(pl.expenses)}</TableCell>
+                <TableCell className={cn("text-right font-semibold tabular-nums", netClass(pl.net))}>{netText(pl.net)}</TableCell>
+              </TableRow></TableFooter>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
     </>
   );
 }

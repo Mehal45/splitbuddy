@@ -32,7 +32,7 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/loads", label: "Load sheets", icon: Truck },
     { href: "/reconciliation", label: "End of day", icon: Scale },
     { href: "/stock", label: "Stock", icon: Boxes },
-    { href: "/profit", label: "Daily profit", icon: TrendingUp },
+    { href: "/profit", label: "Profit & loss", icon: TrendingUp },
     { href: "/expenses", label: "Expenses", icon: Wallet },
     { href: "/purchases", label: "Purchases", icon: Factory },
     { href: "/sales", label: "Sales invoices", icon: Receipt },
