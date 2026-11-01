@@ -42,7 +42,7 @@ function Frame({ children, wide = false }: { children: React.ReactNode; wide?: b
         <h1 className="mt-4 text-center text-3xl font-semibold tracking-tight">{db.settings.agencyName}</h1>
         <p className="mt-1 text-center text-muted-foreground">{db.settings.agencyTagline}</p>
         <div className="mt-8 w-full">{children}</div>
-        <p className="mt-8 text-center text-xs text-muted-foreground">Demo version · all data is sample data stored in this browser</p>
+        <p className="mt-8 text-center text-xs text-muted-foreground">{db.sample ? "Demo version · sample data stored in this browser" : "Demo version · data is stored in this browser only"}</p>
       </div>
     </div>
   );
@@ -104,8 +104,10 @@ export function OwnerLogin() {
   const [keep, setKeep] = React.useState(true);
   const [unlocked, setUnlocked] = React.useState(false);
   const [error, setError] = React.useState("");
-  const [driverId, setDriverId] = React.useState("u-dr1");
-  const [customerId, setCustomerId] = React.useState("u-c1");
+  const firstOf = (role: string) => db.users.find((u) => u.role === role)?.id ?? "";
+  const [staffId, setStaffId] = React.useState(() => firstOf("warehouse"));
+  const [driverId, setDriverId] = React.useState(() => firstOf("driver"));
+  const [customerId, setCustomerId] = React.useState(() => firstOf("customer"));
   const expected = db.settings.ownerPin || DEFAULT_OWNER_PIN;
   const isDefaultPin = expected === DEFAULT_OWNER_PIN;
 
@@ -148,30 +150,35 @@ export function OwnerLogin() {
     );
   }
 
+  const owner = db.users.find((u) => u.role === "owner");
+  const staff = db.users.filter((u) => u.role === "warehouse");
   const drivers = db.users.filter((u) => u.role === "driver");
   const customers = db.users.filter((u) => u.role === "customer");
-  const roles: { icon: React.ElementType; title: string; who?: string; desc: string; picker?: React.ReactNode; action: () => void }[] = [
-    { icon: Crown, title: "Owner", who: "Anmol Mehta", desc: "Everything: dashboard, stock, approvals, customers, reports, Tally sync.", action: () => go("u-owner") },
-    { icon: Warehouse, title: "Warehouse staff", who: "Shivakumar B", desc: "Load sheets, approvals, plant receipts and end-of-day counts.", action: () => go("u-wh1") },
+  const truckOf = (u: AppUser) => db.trucks.find((t) => t.id === db.drivers.find((d) => d.id === u.driverId)?.truckId)?.regNo ?? "";
+  const custLabel = (u: AppUser) => { const c = db.customers.find((x) => x.id === u.customerId); return c ? `${custName(c)} · ${c.area}` : u.name; };
+  const picker = (label: string, value: string, set: (v: string) => void, list: AppUser[], text: (u: AppUser) => string, empty: string) =>
+    list.length === 0 ? <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">{empty}</p> : (
+      <Select value={value} onValueChange={set}>
+        <SelectTrigger className="w-full" aria-label={label}><SelectValue /></SelectTrigger>
+        <SelectContent>{list.map((u) => <SelectItem key={u.id} value={u.id}>{text(u)}</SelectItem>)}</SelectContent>
+      </Select>
+    );
+  const roles: { icon: React.ElementType; title: string; who?: string; desc: string; picker?: React.ReactNode; action: () => void; disabled?: boolean }[] = [
+    { icon: Crown, title: "Owner", who: owner?.name, desc: "Everything: dashboard, stock, approvals, customers, reports, Tally sync.", action: () => owner && go(owner.id) },
+    {
+      icon: Warehouse, title: "Warehouse staff", desc: "Load sheets, approvals, plant receipts and end-of-day counts.",
+      picker: picker("Staff member", staffId, setStaffId, staff, (u) => u.name, "No staff yet. Add them in Trucks & drivers."),
+      action: () => go(staffId), disabled: !staff.some((u) => u.id === staffId),
+    },
     {
       icon: Truck, title: "Driver", desc: "Mobile screen: own truck, deliveries with photo, GPS and payment.",
-      picker: (
-        <Select value={driverId} onValueChange={setDriverId}>
-          <SelectTrigger className="w-full" aria-label="Driver"><SelectValue /></SelectTrigger>
-          <SelectContent>{drivers.map((u) => <SelectItem key={u.id} value={u.id}>{u.name} · {db.trucks.find((t) => t.id === db.drivers.find((d) => d.id === u.driverId)?.truckId)?.regNo}</SelectItem>)}</SelectContent>
-        </Select>
-      ),
-      action: () => go(driverId),
+      picker: picker("Driver", driverId, setDriverId, drivers, (u) => `${u.name} · ${truckOf(u)}`, "No drivers yet. Add them in Trucks & drivers."),
+      action: () => go(driverId), disabled: !drivers.some((u) => u.id === driverId),
     },
     {
       icon: User, title: "Customer", desc: "Portal: own deliveries, GST invoices, empty balance and payments.",
-      picker: (
-        <Select value={customerId} onValueChange={setCustomerId}>
-          <SelectTrigger className="w-full" aria-label="Customer"><SelectValue /></SelectTrigger>
-          <SelectContent>{customers.map((u) => { const c = db.customers.find((x) => x.id === u.customerId)!; return <SelectItem key={u.id} value={u.id}>{custName(c)} · {c.area}</SelectItem>; })}</SelectContent>
-        </Select>
-      ),
-      action: () => go(customerId),
+      picker: picker("Customer", customerId, setCustomerId, customers, custLabel, "No customers yet. Add them in Customers."),
+      action: () => go(customerId), disabled: !customers.some((u) => u.id === customerId),
     },
   ];
 
@@ -188,7 +195,7 @@ export function OwnerLogin() {
               </div>
               <p className="flex-1 text-sm opacity-75">{r.desc}</p>
               {r.picker}
-              <Button size="lg" className="w-full" variant={i === 0 ? "secondary" : "default"} onClick={r.action}>Open as {r.title.toLowerCase()} <ArrowRight /></Button>
+              <Button size="lg" className="w-full" variant={i === 0 ? "secondary" : "default"} onClick={r.action} disabled={r.disabled}>Open as {r.title.toLowerCase()} <ArrowRight /></Button>
             </CardContent>
           </Card>
         ))}
@@ -323,7 +330,8 @@ export function PhoneLogin({ role }: { role: Exclude<Role, "owner"> }) {
           )}
         </CardContent>
       </Card>
-      {step === "phone" && (
+      {/* Demo numbers only with the built-in sample data: real staff numbers are never shown on a login page */}
+      {step === "phone" && db.sample && people.length > 0 && (
         <Card className="mt-4 gap-2 py-4">
           <CardContent className="px-5">
             <p className="mb-2 text-sm font-medium">Demo numbers <span className="font-normal text-muted-foreground">· tap to fill</span></p>

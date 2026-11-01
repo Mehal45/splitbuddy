@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, CheckCircle2, Info, Laptop, Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { Check, CheckCircle2, Trash2, Laptop, Loader2, Plus, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +33,7 @@ function runMockSync(db: DB, userId: string) {
   // Counter sales entered in Tally (walk-in customers collecting from the godown)
   const commercial = db.customers.filter((c) => c.type === "commercial" && c.state === db.settings.homeState);
   const domestic = db.customers.filter((c) => c.type === "domestic");
-  const picks = [commercial[rand(commercial.length)], domestic[rand(domestic.length)], commercial[rand(commercial.length)]];
+  const picks = [commercial[rand(commercial.length)], domestic[rand(domestic.length)], commercial[rand(commercial.length)]].filter(Boolean);
   for (const c of picks) {
     const size = c.type === "domestic" ? "14.2" : "19";
     const qty = c.type === "domestic" ? 1 : 1 + rand(3);
@@ -48,7 +48,7 @@ function runMockSync(db: DB, userId: string) {
   vouchers.push({ type: "Purchase", no: pur.no, party: pur.partyName, amount: pur.total });
   // Receipts (cheque / NEFT) entered in Tally
   const credit = db.customers.filter((c) => c.paymentMode === "credit");
-  for (let k = 0; k < 2; k++) {
+  for (let k = 0; k < (credit.length ? 2 : 0); k++) {
     const c = credit[rand(credit.length)];
     const amount = (5 + rand(20)) * 1000;
     recordPayment(db, { customerId: c.id, date, ts, amount, mode: k ? "cheque" : "neft", ref: k ? `CHQ ${100000 + rand(899999)}` : `UTR${300000000 + rand(699999999)}`, source: "tally" });
@@ -158,10 +158,11 @@ function LookCard() {
 }
 
 export function SettingsView() {
-  const { db, act, resetDemo } = useStore();
+  const { db, act, clearAll, loadSample } = useStore();
   const actor = useActorId();
   const [s, setS] = React.useState<Settings>(() => structuredClone(db.settings));
-  const [confirmReset, setConfirmReset] = React.useState(false);
+  const [confirm, setConfirm] = React.useState<"clear" | "sample" | null>(null);
+  const [typed, setTyped] = React.useState("");
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh form after a reset
     setS(structuredClone(db.settings));
@@ -241,18 +242,48 @@ export function SettingsView() {
         <LookCard />
 
         <Card className="border-destructive/40">
-          <CardHeader><CardTitle>Demo data</CardTitle><CardDescription>Everything you add in this demo is saved in this browser only.</CardDescription></CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-3">
-            <Button variant="destructive" onClick={() => setConfirmReset(true)}><RotateCcw /> Reset demo data</Button>
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground"><Info className="size-4" />Rebuilds a fresh 60-day history ending today.</p>
+          <CardHeader>
+            <CardTitle>Data</CardTitle>
+            <CardDescription>
+              {db.sample ? "Sample data is loaded (example customers, trucks and 60 days of history)." : "Your own data. Everything is saved in this browser only."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-2 rounded-xl border p-4">
+              <p className="font-medium">Clear all data</p>
+              <p className="text-sm text-muted-foreground">Removes every customer, truck, driver, staff member, stock entry, delivery, invoice and payment. Keeps your owner login, PIN, agency details and cylinder prices.</p>
+              <Button variant="destructive" className="w-fit" onClick={() => { setTyped(""); setConfirm("clear"); }}><Trash2 /> Clear all data</Button>
+            </div>
+            <div className="grid gap-2 rounded-xl border p-4">
+              <p className="font-medium">Load sample data</p>
+              <p className="text-sm text-muted-foreground">Replaces everything with 40 example customers, 12 trucks and 60 days of history ending today. Useful for showing the app.</p>
+              <Button variant="outline" className="w-fit" onClick={() => { setTyped(""); setConfirm("sample"); }}><RotateCcw /> Load sample data</Button>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <Dialog open={confirmReset} onOpenChange={setConfirmReset}>
+      <Dialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Reset demo data?</DialogTitle><DialogDescription>All deliveries, approvals, receipts and settings you changed will be replaced with fresh sample data.</DialogDescription></DialogHeader>
-          <DialogFooter><Button variant="outline" onClick={() => setConfirmReset(false)}>Cancel</Button><Button variant="destructive" onClick={() => { resetDemo(actor); setConfirmReset(false); }}>Reset</Button></DialogFooter>
+          <DialogHeader>
+            <DialogTitle>{confirm === "clear" ? "Clear all data?" : "Load sample data?"}</DialogTitle>
+            <DialogDescription>
+              {confirm === "clear"
+                ? "Everything you have entered is deleted and can't be brought back. Your owner login and PIN stay."
+                : "Everything you have entered is replaced with sample data and can't be brought back. Your owner login and PIN stay."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="confirm-word">Type <b>{confirm === "clear" ? "CLEAR" : "SAMPLE"}</b> to confirm</Label>
+            <Input id="confirm-word" autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" disabled={typed.trim().toUpperCase() !== (confirm === "clear" ? "CLEAR" : "SAMPLE")}
+              onClick={() => { if (confirm === "clear") clearAll(actor); else loadSample(actor); setConfirm(null); }}>
+              {confirm === "clear" ? "Clear everything" : "Load sample data"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

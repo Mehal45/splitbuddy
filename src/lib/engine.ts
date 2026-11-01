@@ -285,3 +285,68 @@ export function changeState(db: DB, a: { ts: string; size: string; from: CylStat
   if (a.qty > locQty(computeStock(db.movements), WH, a.size, a.from)) fail("Not that many cylinders in that state at the warehouse.");
   move(db, { ts: a.ts, userId: a.userId, from: WH, to: WH, size: a.size, state: a.from, toState: a.to, qty: a.qty, refType: "adjust", note: a.note });
 }
+
+// ---------- setting up a business from empty ----------
+
+const REG_RE = /^[A-Z]{2}[ -]?\d{1,2}[ -]?[A-Z]{0,3}[ -]?\d{1,4}$/;
+const phoneKey = (p: string) => p.replace(/\D/g, "").slice(-10);
+
+function checkNewPhone(db: DB, phone: string) {
+  if (!/^[6-9]\d{9}$/.test(phoneKey(phone))) fail("Phone must be a 10-digit Indian mobile number.");
+  if (db.users.some((u) => phoneKey(u.phone) === phoneKey(phone))) fail("This phone number already belongs to another login.");
+}
+function checkName(name: string, what: string) {
+  if (!name.trim()) fail(`${what} is required.`);
+  if (name.trim().length > 80) fail(`${what} can be at most 80 characters.`);
+}
+
+export function addTruckWithDriver(db: DB, a: { regNo: string; model: string; capacity: number; driverName: string; phone: string; licenseNo: string }) {
+  const regNo = a.regNo.trim().toUpperCase().replace(/\s+/g, "-");
+  if (!REG_RE.test(regNo)) fail("Truck number should look like KA-01-AB-1234.");
+  if (db.trucks.some((t) => t.regNo.replace(/\W/g, "") === regNo.replace(/\W/g, ""))) fail("A truck with this number already exists.");
+  checkName(a.model || "x", "Truck model");
+  if (!Number.isInteger(a.capacity) || a.capacity < 1 || a.capacity > 1000) fail("Capacity must be 1 to 1,000 cylinders.");
+  checkName(a.driverName, "Driver name");
+  checkNewPhone(db, a.phone);
+  if (a.licenseNo.length > 30) fail("Licence number is too long.");
+  const truck = { id: nextId(db, "tnew"), regNo, model: a.model.trim() || "Truck", capacity: a.capacity };
+  const driver = { id: nextId(db, "drnew"), name: a.driverName.trim(), phone: a.phone.trim(), licenseNo: a.licenseNo.trim().toUpperCase(), truckId: truck.id };
+  db.trucks.push(truck);
+  db.drivers.push(driver);
+  db.users.push({ id: `u-${driver.id}`, name: driver.name, role: "driver", phone: driver.phone, driverId: driver.id });
+  return { truck, driver };
+}
+
+export function addStaff(db: DB, a: { name: string; phone: string }) {
+  checkName(a.name, "Name");
+  checkNewPhone(db, a.phone);
+  const user = { id: nextId(db, "u-whnew"), name: a.name.trim(), role: "warehouse" as const, phone: a.phone.trim() };
+  db.users.push(user);
+  return user;
+}
+
+export function addOpeningStock(db: DB, a: { ts: string; userId: string; lines: Record<string, Partial<Record<CylState, number>>> }) {
+  let total = 0;
+  for (const [size, byState] of Object.entries(a.lines)) {
+    for (const [state, q] of Object.entries(byState) as [CylState, number][]) {
+      checkQty({ [size]: q }, "Opening stock", db);
+      total += q;
+      move(db, { ts: a.ts, userId: a.userId, from: "OPENING", to: WH, size, state, qty: q, refType: "opening", note: "Opening stock entered" });
+    }
+  }
+  if (!total) fail("Enter at least one cylinder.");
+  return total;
+}
+
+// A new customer may already hold cylinders and owe money from before the app.
+export function setCustomerOpening(db: DB, customerId: string, a: { outstanding: number; held: SizeQty; ts: string; userId: string }) {
+  const c = db.customers.find((x) => x.id === customerId);
+  if (!c) fail("Customer not found.");
+  if (!Number.isInteger(a.outstanding) || a.outstanding < 0 || a.outstanding > 1_00_00_000) fail("Opening dues must be ₹0 to ₹1 crore.");
+  checkQty(a.held, "Cylinders already with customer", db);
+  c!.openingOutstanding = a.outstanding;
+  c!.openingEmpties = { ...a.held };
+  for (const [size, q] of Object.entries(a.held)) {
+    move(db, { ts: a.ts, userId: a.userId, from: "OPENING", to: custLoc(customerId), size, state: "empty", qty: q, refType: "opening", note: "Cylinders with customer before start" });
+  }
+}

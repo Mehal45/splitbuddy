@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRightLeft } from "lucide-react";
+import { ArrowRightLeft, PackagePlus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRange, downloadCSV, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
-import { changeState, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
+import { addOpeningStock, changeState, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { custName, dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { locLabel, useActorId, useSizes } from "@/lib/hooks";
 import { Link } from "@/lib/router";
@@ -69,6 +69,7 @@ export function StockView() {
       <PageHeader title="Stock" description="Live cylinder count per size and state at every location. Every change is logged in the movement log."
         actions={<>
           <Button variant="outline" asChild><Link href="/movements">Movement log</Link></Button>
+          {role === "owner" && <OpeningStockButton />}
           {(role === "warehouse" || role === "owner") && <Button onClick={() => setChangeOpen(true)}><ArrowRightLeft /> Change state</Button>}
         </>} />
       <StockGrid />
@@ -221,6 +222,58 @@ export function MovementsView() {
           </Table>
         </CardContent>
       </Card>
+    </>
+  );
+}
+
+// Stock already in the warehouse when the business starts using the app.
+function OpeningStockButton() {
+  const { act } = useStore();
+  const sizes = useSizes();
+  const actor = useActorId();
+  const [open, setOpen] = React.useState(false);
+  const [q, setQ] = React.useState<Record<string, Partial<Record<CylState, number>>>>({});
+  const total = Object.values(q).reduce((n, st) => n + Object.values(st).reduce((a, b) => a + (b ?? 0), 0), 0);
+  const save = () => {
+    const lines = Object.fromEntries(Object.entries(q).map(([size, st]) => [size, Object.fromEntries(Object.entries(st).filter(([, n]) => (n ?? 0) > 0))]).filter(([, st]) => Object.keys(st).length));
+    const ok = act((d) => {
+      const n = addOpeningStock(d, { ts: new Date().toISOString(), userId: actor, lines });
+      logAudit(d, actor, "opening_stock", `Entered opening stock: ${n} cylinders at the warehouse`);
+    }, `Opening stock added: ${total} cylinders`);
+    if (ok) { setOpen(false); setQ({}); }
+  };
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)}><PackagePlus /> Opening stock</Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Opening stock at the warehouse</DialogTitle>
+            <DialogDescription>Count what is in the warehouse today and enter it once. Later stock comes in through plant receipts.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead className="text-muted-foreground"><tr><th className="py-1 text-left font-medium">Size</th>{CYL_STATES.map((st) => <th key={st} className="py-1 text-left font-medium">{st === "defective" ? "Defective" : st === "testing" ? "Due for testing" : STATE_LABEL[st]}</th>)}</tr></thead>
+              <tbody>
+                {sizes.map((z) => (
+                  <tr key={z.id} className="border-t">
+                    <td className="py-2 pr-2 font-medium">{z.label}</td>
+                    {CYL_STATES.map((st) => (
+                      <td key={st} className="py-2 pr-2">
+                        <Stepper value={q[z.id]?.[st] ?? 0} max={9999} onChange={(n) => setQ({ ...q, [z.id]: { ...q[z.id], [st]: n } })} label={`${z.label} ${STATE_LABEL[st]}`} />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button onClick={save} disabled={total === 0}>Add {total || ""} cylinders</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

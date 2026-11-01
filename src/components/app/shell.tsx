@@ -154,7 +154,7 @@ export function ViewAsDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const { db, viewAs } = useStore();
   const [role, setRole] = React.useState<Role>("driver");
   const people = db.users.filter((u) => u.role === role);
-  const [userId, setUserId] = React.useState<string>("u-dr1");
+  const [userId, setUserId] = React.useState<string>(() => db.users.find((u) => u.role === "driver")?.id ?? "");
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- default person when role changes
     setUserId(people[0]?.id ?? "");
@@ -184,17 +184,19 @@ export function ViewAsDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           </div>
           <div className="grid gap-2">
             <Label>Person</Label>
-            <Select value={userId} onValueChange={setUserId}>
-              <SelectTrigger className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
-              <SelectContent>
-                {people.map((u) => <SelectItem key={u.id} value={u.id}>{labelFor(u.id)}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            {people.length === 0 ? <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">Nobody in this role yet.</p> : (
+              <Select value={userId} onValueChange={setUserId}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Choose" /></SelectTrigger>
+                <SelectContent>
+                  {people.map((u) => <SelectItem key={u.id} value={u.id}>{labelFor(u.id)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => { viewAs(userId); onOpenChange(false); navigate("/"); }} disabled={!userId}><Eye /> View as {ROLE_LABEL[role].toLowerCase()}</Button>
+          <Button onClick={() => { viewAs(userId); onOpenChange(false); navigate("/"); }} disabled={!people.some((u) => u.id === userId)}><Eye /> View as {ROLE_LABEL[role].toLowerCase()}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -256,7 +258,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 }
 
 export function AppShell({ path, children }: { path: string; children: React.ReactNode }) {
-  const { role, realUser } = useStore();
+  const { role, realUser, db } = useStore();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [viewOpen, setViewOpen] = React.useState(false);
   const items = NAV[role!];
@@ -311,7 +313,7 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
             </Sheet>
             <div className="lg:hidden"><Brand compact /></div>
             <div className="ml-auto flex items-center gap-1">
-              <Badge variant="outline" className="mr-1 hidden text-muted-foreground sm:inline-flex">Demo · sample data</Badge>
+              <Badge variant="outline" className="mr-1 hidden text-muted-foreground sm:inline-flex">{db.sample ? "Demo · sample data" : "Demo"}</Badge>
               {role === "owner" && <AlertBell />}
               <ThemeToggle />
               <UserMenu />

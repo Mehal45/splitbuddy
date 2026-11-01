@@ -215,7 +215,8 @@ export type AuditAction =
   | "login" | "login_failed" | "logout" | "view_as"
   | "delivery_submitted" | "delivery_approved" | "delivery_rejected"
   | "load_sheet" | "reconciliation" | "purchase" | "payment" | "stock_state_change"
-  | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset";
+  | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset"
+  | "team_changed" | "opening_stock";
 
 export interface AuditEntry {
   id: string;
@@ -228,6 +229,7 @@ export interface AuditEntry {
 export interface DB {
   version: number;
   seededAt: string;
+  sample?: boolean; // true while the built-in sample data is loaded
   settings: Settings;
   users: User[];
   drivers: Driver[];

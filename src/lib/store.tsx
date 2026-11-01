@@ -7,7 +7,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { REMEMBER_MS, SESSION_MS } from "./auth";
 import { computeStock, logAudit, type StockMap } from "./engine";
-import { buildSeed, DB_VERSION } from "./seed";
+import { buildEmpty, buildSeed, DB_VERSION } from "./seed";
 import { computeAlerts, customerBalances, type Alert, type CustomerBalance } from "./selectors";
 import type { AuditAction, DB, Role, User } from "./types";
 
@@ -56,7 +56,8 @@ interface StoreValue {
   alerts: Alert[];
   now: number;
   act: (fn: (draft: DB) => void, success?: string) => boolean;
-  resetDemo: (actorId: string) => void;
+  clearAll: (actorId: string) => void;
+  loadSample: (actorId: string) => void;
   session: Session | null;
   login: (userId: string, remember?: boolean) => void;
   logout: () => void;
@@ -106,7 +107,7 @@ function looksValid(d: unknown): d is DB {
 function loadDB(): { db: DB; recovered: boolean } {
   const saved = readJSON<unknown>(DB_KEY);
   if (looksValid(saved)) return { db: saved, recovered: false };
-  const fresh = buildSeed();
+  const fresh = buildEmpty();
   writeJSON(DB_KEY, fresh);
   return { db: fresh, recovered: saved !== null && (saved as DB)?.version === DB_VERSION };
 }
@@ -149,15 +150,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return true;
   }, []);
 
-  const resetDemo = React.useCallback((actorId: string) => {
-    const fresh = buildSeed();
-    logAudit(fresh, actorId, "demo_reset", "Demo data reset to a fresh 60-day history");
-    currentDb = fresh;
-    setDb(fresh);
+  // Replace the whole database. The owner login and PIN always survive, so the
+  // owner can never lock themselves out by clearing data.
+  const replaceDb = React.useCallback((next: DB, actorId: string, detail: string, message: string) => {
+    const prev = currentDb;
+    if (prev) {
+      next.settings.ownerPin = prev.settings.ownerPin;
+      const owner = prev.users.find((u) => u.role === "owner");
+      if (owner) next.users = [owner, ...next.users.filter((u) => u.role !== "owner")];
+    }
+    logAudit(next, actorId, "demo_reset", detail);
+    currentDb = next;
+    setDb(next);
     setNow(Date.now());
-    writeJSON(DB_KEY, fresh);
-    toast.success("Demo data reset to a fresh 60-day history");
+    writeJSON(DB_KEY, next);
+    toast.success(message);
   }, []);
+
+  const clearAll = React.useCallback((actorId: string) => {
+    const empty = buildEmpty();
+    // keep the agency's own setup: name, GSTIN, sizes, prices, thresholds
+    if (currentDb) empty.settings = structuredClone(currentDb.settings);
+    replaceDb(empty, actorId, "Cleared all data (started empty)", "All data cleared. The app is now empty.");
+  }, [replaceDb]);
+
+  const loadSample = React.useCallback((actorId: string) => {
+    replaceDb(buildSeed(), actorId, "Loaded the 60-day sample data", "Sample data loaded (60 days ending today)");
+  }, [replaceDb]);
 
   const saveSession = React.useCallback((s: Session | null) => {
     setSession(s);
@@ -177,7 +196,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const viewed = realUser?.role === "owner" && session?.viewAsUserId ? db.users.find((u) => u.id === session.viewAsUserId) ?? null : null;
     const user = viewed ?? realUser;
     return {
-      db, stock, balances, alerts, now, act, resetDemo, session,
+      db, stock, balances, alerts, now, act, clearAll, loadSample, session,
       login: (userId, remember = true) => {
         logEvent(userId, "login", remember ? "Signed in (kept signed in)" : "Signed in (this tab only)");
         saveSession({ userId, remember, expiresAt: Date.now() + (remember ? REMEMBER_MS : SESSION_MS) });
@@ -194,7 +213,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       realUser, user, role: user?.role ?? null,
     };
-  }, [db, session, now, act, resetDemo, saveSession, logEvent]);
+  }, [db, session, now, act, clearAll, loadSample, saveSession, logEvent]);
 
   if (!value) {
     return (

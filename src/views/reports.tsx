@@ -182,8 +182,9 @@ function GstSummary() {
 function CustomerLedger() {
   const { db } = useStore();
   const r = useDateRange(60);
-  const [cid, setCid] = React.useState(db.customers[0].id);
-  const c = db.customers.find((x) => x.id === cid)!;
+  const [cid, setCid] = React.useState(() => db.customers[0]?.id ?? "");
+  const c = db.customers.find((x) => x.id === cid);
+  if (!c) return <Card><CardContent className="py-6"><EmptyState title="No customers yet" hint="Add customers to see their ledger." /></CardContent></Card>;
   const sales = db.invoices.filter((i) => i.kind === "sale" && i.partyId === cid);
   const pays = db.payments.filter((p) => p.customerId === cid);
   const opening = c.openingOutstanding + sales.filter((i) => i.date < r.from).reduce((s, i) => s + i.total, 0) - pays.filter((p) => p.date < r.from).reduce((s, p) => s + p.amount, 0);

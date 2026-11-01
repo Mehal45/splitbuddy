@@ -20,7 +20,7 @@ So: **don't put real customer data, real money figures or real phone numbers int
 | One person, one number | A phone number can belong to only one login. Editing a customer's phone updates their login too (this was a bug, now fixed). |
 | Input checks | Every form validates its fields (GSTIN format and state code, 10-digit mobile, length limits, amount limits, whole-number quantities). Stock and money writes (load sheets, deliveries, end-of-day counts, plant receipts, payments, stock state changes) are checked again in the business engine, so a bad value can't be saved even if a form is bypassed. Examples: stock can't go below zero, payments must be ₹1 to ₹1 crore, and a driver can't record more cash than the bill plus dues. |
 | Photos | Only real image files are accepted (JPG/PNG/WebP, max 25 MB, re-encoded and shrunk). Anything else stored as a "photo" is never rendered. |
-| Activity log | Sign-ins, failed sign-ins, "view as", deliveries, approvals, rejections, load sheets, counts, receipts, payments, stock changes, customer edits, settings changes, Tally syncs and resets are recorded with who and when. The owner sees a failed-sign-in warning. Export to CSV is available. |
+| Activity log | Sign-ins, failed sign-ins, "view as", deliveries, approvals, rejections, load sheets, counts, receipts, payments, stock changes, customer edits, settings changes, Tally syncs, opening stock, team changes and data clears are recorded with who and when. The owner sees a failed-sign-in warning. Export to CSV is available. |
 | CSV exports | Text starting with `= + - @` is prefixed with `'` so Excel can't run it as a formula (CSV injection). |
 | Crash safety | Damaged or tampered saved data is detected and replaced with fresh sample data. A screen error shows a recovery screen instead of a blank page. |
 | Web security headers (Vercel) | `vercel.json` sends a Content-Security-Policy (only this site's code, Google Fonts, no framing, no plugins), HSTS, `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy, and a Permissions-Policy that allows camera and location only for this site. The automated tests run under these same headers. |
@@ -34,7 +34,7 @@ Automated checks (`npm run test:e2e`) try these attacks on every run: wrong PIN,
 - Data, sessions and the activity log can be edited in the browser (see section 1).
 - OTP is simulated: no SMS is sent and any 4 digits work.
 - The Content-Security-Policy allows inline scripts, which the static Next.js build needs. The real app should use nonces.
-- "Reset demo data" wipes the activity log. The real system must not allow this.
+- "Clear all data" and "Load sample data" replace the activity log too (the action itself is logged). The real system must never allow wiping the log.
 - The preview link on claude.ai ignores `vercel.json` headers; only the Vercel deployment sends them.
 
 ## 4. Checklist for the real system

@@ -18,9 +18,10 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   delivery_submitted: "Delivery recorded", delivery_approved: "Delivery approved", delivery_rejected: "Delivery rejected",
   load_sheet: "Load sheet", reconciliation: "End-of-day count", purchase: "Plant receipt", payment: "Payment recorded",
   stock_state_change: "Stock state change", customer_added: "Customer added", customer_edited: "Customer edited",
-  settings_changed: "Settings changed", tally_sync: "Tally sync", demo_reset: "Demo data reset",
+  settings_changed: "Settings changed", tally_sync: "Tally sync", demo_reset: "Data cleared / reloaded",
+  team_changed: "Team changed", opening_stock: "Opening stock",
 };
-const SENSITIVE: AuditAction[] = ["login_failed", "settings_changed", "customer_edited", "demo_reset", "delivery_rejected", "view_as"];
+const SENSITIVE: AuditAction[] = ["login_failed", "settings_changed", "customer_edited", "demo_reset", "delivery_rejected", "view_as", "team_changed", "opening_stock"];
 
 export function ActivityView() {
   const { db, now } = useStore();

@@ -36,8 +36,93 @@ await page.getByRole("button", { name: "Unlock" }).click();
 await page.getByText("That PIN is not correct").waitFor();
 step("owner page rejects a wrong PIN");
 
+// ---------- a brand-new install starts empty ----------
+const start = await db();
+if (start.customers.length || start.trucks.length || start.deliveries.length || start.movements.length) throw new Error("app should start empty");
+await page.getByLabel("PIN digit 1").fill("1234");
+await page.getByRole("button", { name: "Unlock" }).click();
+await page.getByRole("button", { name: "Open as owner" }).click();
+await page.getByText("Stock across locations").waitFor();
+step("new install starts completely empty; owner signs in with PIN");
+
+// Set up a business from scratch
+await page.goto(base + "#/fleet");
+await page.getByText("No trucks yet").waitFor();
+await page.getByRole("button", { name: "Add truck & driver" }).click();
+let dlg = page.getByRole("dialog");
+await dlg.getByLabel("Truck number").fill("KA-05-MN-2024");
+await dlg.getByLabel("Driver name").fill("Test Driver");
+await dlg.getByLabel("Driver mobile").fill("91234 56780");
+await dlg.getByRole("button", { name: "Add", exact: true }).click();
+await page.getByText("Truck and driver added").waitFor();
+await page.getByRole("button", { name: "Add staff" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByLabel("Name").fill("Test Staff");
+await dlg.getByLabel("Mobile").fill("91234 56781");
+await dlg.getByRole("button", { name: "Add", exact: true }).click();
+await page.getByText("Staff member added").waitFor();
+// the same phone can't be used twice
+await page.getByRole("button", { name: "Add staff" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByLabel("Name").fill("Copycat");
+await dlg.getByLabel("Mobile").fill("91234 56780");
+await dlg.getByRole("button", { name: "Add", exact: true }).click();
+await page.getByText("already belongs to another login").waitFor();
+await page.keyboard.press("Escape");
+
+await page.goto(base + "#/stock");
+await page.getByRole("button", { name: "Opening stock" }).click();
+dlg = page.getByRole("dialog");
+for (let i = 0; i < 3; i++) await dlg.getByRole("button", { name: "Increase 19 kg Full" }).click();
+await dlg.getByRole("button", { name: "Add 3 cylinders" }).click();
+await page.getByText("Opening stock added: 3 cylinders").waitFor();
+
+await page.goto(base + "#/customers");
+await page.getByRole("button", { name: "Add customer" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByLabel("Contact name").fill("Sharma Tiffins");
+await dlg.locator("input[inputmode=tel]").fill("9123456782");
+await dlg.getByLabel("GSTIN").fill("29ABCDE1234F1Z5");
+await dlg.getByLabel("Amount they owe today (₹)").fill("2500");
+await dlg.getByLabel("19 kg already with customer").fill("2");
+await dlg.getByRole("button", { name: "Save" }).click();
+await page.getByText("Customer added").waitFor();
+let setup = await db();
+const sharma = setup.customers.find((c) => c.name === "Sharma Tiffins");
+const whFull19 = setup.movements.filter((m) => m.to === "WH" && m.size === "19" && m.state === "full").reduce((n, m) => n + m.qty, 0);
+if (!sharma || sharma.openingOutstanding !== 2500 || sharma.openingEmpties["19"] !== 2 || whFull19 !== 3) throw new Error("setup from empty did not save correctly");
+step("from empty: added truck + driver, staff, opening stock and a customer with opening dues");
+
+// The new driver signs in; real numbers are never listed on the login page
+await page.evaluate(() => { localStorage.removeItem("anmol-gas-demo:session"); sessionStorage.clear(); });
+await page.reload(); await page.goto(base + "#driver");
+await page.getByText("Driver login").waitFor();
+if (await page.getByText("Demo numbers").count()) throw new Error("demo numbers must not show with real data");
+await page.getByLabel("Mobile number").fill("91234 56780");
+await page.getByRole("button", { name: "Send OTP" }).click();
+await page.getByLabel("OTP digit 1").fill("1111");
+await page.getByRole("button", { name: "Verify and log in" }).click();
+await page.getByText("On my truck now").waitFor();
+step("new driver signs in by phone; no phone numbers shown on the login page");
+
+// Load the sample data for the remaining flows
+await page.evaluate(() => { localStorage.removeItem("anmol-gas-demo:session"); sessionStorage.clear(); });
+await page.goto(base + "#/"); await page.reload();
+await page.getByLabel("PIN digit 1").fill("1234");
+await page.getByRole("button", { name: "Unlock" }).click();
+await page.getByRole("button", { name: "Open as owner" }).click();
+await page.goto(base + "#/settings");
+await page.getByRole("button", { name: "Load sample data" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByLabel(/Type SAMPLE/).fill("SAMPLE");
+await dlg.getByRole("button", { name: "Load sample data" }).click();
+await page.getByText("Sample data loaded").waitFor();
+if ((await db()).customers.length !== 40) throw new Error("sample data not loaded");
+await page.evaluate(() => { localStorage.removeItem("anmol-gas-demo:session"); sessionStorage.clear(); });
+step("sample data loaded (owner PIN kept)");
+
 // Driver logs in on their own page with mobile number + OTP
-await page.goto(base + "#driver");
+await page.reload(); await page.goto(base + "#driver");
 await page.getByLabel("Mobile number").fill("12345 67890");
 await page.getByRole("button", { name: "Send OTP" }).click();
 await page.getByText("Enter a 10-digit Indian mobile number").waitFor();
@@ -155,11 +240,20 @@ await page.getByRole("button", { name: "Back to owner view" }).click();
 
 // Reset
 await page.goto(base + "#/settings");
-await page.getByRole("button", { name: "Reset demo data" }).click();
-await page.getByRole("button", { name: "Reset", exact: true }).click();
-await page.getByText(/Demo data reset/).waitFor();
-if ((await db()).deliveries.some((d) => d.id === newD.id && d.customerId === newD.customerId && d.payment?.mode === "upi" && d.ts === newD.ts)) throw new Error("reset failed");
-step("reset demo data");
+await page.getByRole("button", { name: "Clear all data" }).click();
+dlg = page.getByRole("dialog");
+if (!(await dlg.getByRole("button", { name: "Clear everything" }).isDisabled())) throw new Error("clear must need typed confirmation");
+await dlg.getByLabel(/Type CLEAR/).fill("CLEAR");
+await dlg.getByRole("button", { name: "Clear everything" }).click();
+await page.getByText("All data cleared").waitFor();
+const cleared = await db();
+if (cleared.customers.length || cleared.deliveries.length || cleared.trucks.length || cleared.users.length !== 1 || cleared.users[0].role !== "owner") throw new Error("clear all did not empty the app");
+step("clear all data (typed CLEAR) leaves only the owner login");
+await page.getByRole("button", { name: "Load sample data" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByLabel(/Type SAMPLE/).fill("SAMPLE");
+await dlg.getByRole("button", { name: "Load sample data" }).click();
+await page.getByText("Sample data loaded").waitFor();
 
 // ---------- attack / misuse cases ----------
 const loginAs = async (userId) => {
@@ -169,9 +263,10 @@ const loginAs = async (userId) => {
 };
 
 // A forged session without a valid expiry is ignored
-await page.evaluate(() => localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: "u-owner" })));
+await page.evaluate(() => { sessionStorage.clear(); localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: "u-owner" })); });
 await page.reload();
-await page.getByText("Owner login").waitFor();
+await page.getByRole("heading", { name: "Owner login", exact: true }).waitFor();
+if (await page.getByText("Stock across locations").count()) throw new Error("forged session must not sign in");
 step("forged/expired session is ignored (back to login)");
 
 // Driver can't open staff pages
@@ -193,7 +288,7 @@ step("customer cannot open another customer's invoice");
 await loginAs("u-owner");
 await page.goto(base + "#/customers");
 await page.getByRole("button", { name: "Add customer" }).click();
-const dlg = page.getByRole("dialog");
+dlg = page.getByRole("dialog");
 await dlg.getByLabel("Contact name").fill('=HYPERLINK("http://evil.example","x")');
 await dlg.locator("input[inputmode=tel]").fill("9000011122");
 await dlg.getByLabel("GSTIN").fill("29ABCDE1234F1Z5");
@@ -216,14 +311,14 @@ step("duplicate phone number rejected");
 // Activity log records what happened, including failed sign-ins
 await page.goto(base + "#/activity");
 await page.getByText("Customer added").first().waitFor();
-await page.getByText("Demo data reset").first().waitFor();
-step("activity log shows who added the customer and who reset the data");
+await page.getByText("Data cleared / reloaded").first().waitFor();
+step("activity log shows who added the customer and who reloaded the data");
 
 // Damaged saved data is replaced instead of crashing the app
 await page.evaluate(() => localStorage.setItem("anmol-gas-demo:db", "{not valid json"));
 await page.reload();
 await page.getByRole("heading", { name: /Owner login|Good day|Activity log/ }).first().waitFor();
-await page.evaluate(() => localStorage.setItem("anmol-gas-demo:db", JSON.stringify({ version: 5, users: "oops" })));
+await page.evaluate(() => localStorage.setItem("anmol-gas-demo:db", JSON.stringify({ version: 6, users: "oops" })));
 await page.reload();
 await page.getByText("Saved demo data was damaged").waitFor();
 step("corrupted saved data recovered without a crash");

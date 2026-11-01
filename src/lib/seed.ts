@@ -10,7 +10,37 @@ import { dayKey } from "./format";
 import { customerBalances } from "./selectors";
 import type { Customer, CylinderSize, DB, Driver, SizeQty, Truck } from "./types";
 
-export const DB_VERSION = 5;
+export const DB_VERSION = 6;
+
+// A blank business: agency settings, cylinder sizes, the Bharat Gas plants and
+// the owner login. No customers, trucks, staff, stock or history.
+export function buildEmpty(nowMs = Date.now()): DB {
+  return {
+    version: DB_VERSION,
+    seededAt: new Date(nowMs).toISOString(),
+    sample: false,
+    settings: {
+      agencyName: "Anmol Gas Agency",
+      agencyTagline: "Bharat Gas Distributor, Bangalore",
+      agencyGstin: "29AAKFA4821M1Z6",
+      agencyAddress: "No. 42, KIADB Industrial Area, Peenya 2nd Stage, Bengaluru 560058",
+      homeState: "Karnataka",
+      sizes: DEFAULT_SIZES.map((s) => ({ ...s })),
+      pendingApprovalHours: 4,
+      emptiesTolerance: 2,
+      gpsMaxDistanceKm: 0.5,
+      hsnCode: "2711",
+    },
+    users: [{ id: "u-owner", name: "Anmol Mehta", role: "owner", phone: "98450 11223" }],
+    drivers: [], trucks: [], customers: [],
+    plants: [
+      { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29ABCDE1234F1Z5", state: "Karnataka" },
+      { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33ABCDE1234F1Z9", state: "Tamil Nadu" },
+    ],
+    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [],
+    lastSyncedAt: null, counters: {}, audit: [],
+  };
+}
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -33,7 +63,7 @@ export const DEFAULT_SIZES: CylinderSize[] = [
   { id: "47.5", label: "47.5 kg", kg: 47.5, domesticPrice: null, commercialPrice: 4365, purchasePrice: 4130, purchaseGst: 18, lowStockThreshold: 15, active: true },
 ];
 
-const AREAS: Record<string, { lat: number; lng: number; pin: string; state?: string }> = {
+export const AREAS: Record<string, { lat: number; lng: number; pin: string; state?: string }> = {
   Jayanagar: { lat: 12.925, lng: 77.5938, pin: "560041" },
   Indiranagar: { lat: 12.9719, lng: 77.6412, pin: "560038" },
   Whitefield: { lat: 12.9698, lng: 77.75, pin: "560066" },
@@ -120,32 +150,10 @@ export function buildSeed(nowMs = Date.now()): DB {
   const gstin = (code: string) =>
     `${code}${Array.from({ length: 5 }, () => pick(L.split(""))).join("")}${ri(1000, 9999)}${pick(L.split(""))}1Z${pick("0123456789ABCDEF".split(""))}`;
 
-  const db: DB = {
-    version: DB_VERSION,
-    seededAt: new Date(nowMs).toISOString(),
-    settings: {
-      agencyName: "Anmol Gas Agency",
-      agencyTagline: "Bharat Gas Distributor, Bangalore",
-      agencyGstin: "29AAKFA4821M1Z6",
-      agencyAddress: "No. 42, KIADB Industrial Area, Peenya 2nd Stage, Bengaluru 560058",
-      homeState: "Karnataka",
-      sizes: DEFAULT_SIZES.map((s) => ({ ...s })),
-      pendingApprovalHours: 4,
-      emptiesTolerance: 2,
-      gpsMaxDistanceKm: 0.5,
-      hsnCode: "2711",
-    },
-    users: [], drivers: [], trucks: [], customers: [],
-    plants: [
-      { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29ABCDE1234F1Z5", state: "Karnataka" },
-      { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33ABCDE1234F1Z9", state: "Tamil Nadu" },
-    ],
-    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [],
-    lastSyncedAt: null, counters: {},
-  };
+  const db = buildEmpty(nowMs);
+  db.sample = true;
 
   // ---- people and trucks ----
-  db.users.push({ id: "u-owner", name: "Anmol Mehta", role: "owner", phone: "98450 11223" });
   db.users.push({ id: "u-wh1", name: "Shivakumar B", role: "warehouse", phone: "98860 45120" });
   db.users.push({ id: "u-wh2", name: "Lakshmi Devi", role: "warehouse", phone: "99004 77812" });
   DRIVERS.forEach((name, i) => {

@@ -15,6 +15,7 @@ import { useStore } from "@/lib/store";
 import { useUiStyle } from "@/lib/ui-style";
 import { cn } from "@/lib/utils";
 import { StockGrid } from "./stock";
+import { AddTruckButton, StaffCard } from "./team";
 
 const ALERT_ICON: Record<AlertKind, React.ElementType> = { lowStock: PackageX, empties: AlertTriangle, credit: CreditCard, pending: ClipboardCheck, mismatch: Scale, gps: MapPinOff };
 
@@ -74,7 +75,7 @@ export function OwnerDashboard() {
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} highlight />
         <StatCard label="Sales this month" value={rupeesShort(sales.month)} icon={TrendingUp} onClick={() => navigate("/reports")} />
-        <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone="danger" onClick={() => navigate("/customers")} />
+        <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone={outstanding > 0 ? "danger" : "default"} onClick={() => navigate("/customers")} />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
@@ -87,6 +88,7 @@ export function OwnerDashboard() {
         <Card className="min-w-0">
           <CardHeader><CardTitle>Top dues</CardTitle><CardDescription>Highest outstanding amounts</CardDescription></CardHeader>
           <CardContent className="grid gap-2">
+            {topDues.length === 0 && <EmptyState title="No dues" hint="Customers who owe money show up here." />}
             {topDues.map(({ c, b }) => {
               const over = c.creditLimit > 0 && b.outstanding > c.creditLimit;
               return (
@@ -229,7 +231,7 @@ export function FleetView() {
   const perf = driverPerformance(db, r.from, r.to);
   return (
     <>
-      <PageHeader title="Trucks & drivers" description="12 trucks and drivers, with performance for the selected period." />
+      <PageHeader title="Trucks & drivers" description={db.trucks.length ? `${db.trucks.length} trucks and drivers, with performance for the selected period.` : "Add your trucks and drivers to get started."} actions={<AddTruckButton />} />
       <Card>
         <CardHeader><DateRange from={r.from} to={r.to} onChange={r.set} /></CardHeader>
         <CardContent>
@@ -260,8 +262,10 @@ export function FleetView() {
               })}
             </TableBody>
           </Table>
+          {perf.length === 0 && <EmptyState title="No trucks yet" hint="Use “Add truck & driver”. Each driver then signs in on the driver page." />}
         </CardContent>
       </Card>
+      <StaffCard />
     </>
   );
 }

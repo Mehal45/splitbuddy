@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
-import { logAudit, nextId, recordPayment } from "@/lib/engine";
+import { logAudit, nextId, recordPayment, setCustomerOpening } from "@/lib/engine";
+import { AREAS } from "@/lib/seed";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
@@ -313,12 +314,15 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
   const sizes = useSizes();
   const actor = useActorId();
   const [touched, setTouched] = React.useState(false);
+  // Only for new customers: what they already owe / hold from before the app
+  const [openingDue, setOpeningDue] = React.useState("");
+  const [held, setHeld] = React.useState<Record<string, number>>({});
   const [f, setF] = React.useState<Customer>(() => customer ? structuredClone(customer) : {
     id: "", code: "", name: "", businessName: "", type: "commercial", category: "Restaurant", gstin: "", phone: "", address: "", area: "Jayanagar", state: "Karnataka",
     lat: 12.925, lng: 77.5938, creditLimit: 50000, depositCylinders: { "19": 4 }, depositAmount: 14000, paymentMode: "credit", openingOutstanding: 0, openingEmpties: {},
   });
   const set = <K extends keyof Customer>(k: K, v: Customer[K]) => setF({ ...f, [k]: v });
-  const areas = [...new Set(db.customers.map((c) => c.area))].sort();
+  const areas = [...new Set([...Object.keys(AREAS), ...db.customers.map((c) => c.area)])].sort();
   const clean: Customer = { ...f, name: f.name.trim(), businessName: f.businessName.trim(), address: f.address.trim(), gstin: f.gstin.trim().toUpperCase(), phone: f.phone.trim() };
   const errors = customerErrors(clean, db.users);
   const save = () => {
@@ -334,10 +338,14 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
         logAudit(d, actor, "customer_edited", `Edited ${custName(f)}${customer.phone !== f.phone ? " (phone changed)" : ""}${customer.creditLimit !== f.creditLimit ? ` (credit limit ${rupees(customer.creditLimit)} → ${rupees(f.creditLimit)})` : ""}`);
       } else {
         const id = nextId(d, "cnew");
-        const ref = d.customers.find((c) => c.area === f.area);
-        const c: Customer = { ...f, id, code: `AGA-C${String(d.customers.length + 1).padStart(3, "0")}`, lat: ref?.lat ?? f.lat, lng: ref?.lng ?? f.lng, openingEmpties: {} };
+        const spot = AREAS[f.area] ?? d.customers.find((c) => c.area === f.area);
+        const c: Customer = { ...f, id, code: `AGA-C${String(d.customers.length + 1).padStart(3, "0")}`, lat: spot?.lat ?? f.lat, lng: spot?.lng ?? f.lng, openingEmpties: {}, openingOutstanding: 0 };
         d.customers.push(c);
         d.users.push({ id: `u-${id}`, name: c.name, role: "customer", phone: c.phone, customerId: id });
+        const heldClean = Object.fromEntries(Object.entries(held).filter(([, n]) => n > 0));
+        if (Number(openingDue) > 0 || Object.keys(heldClean).length) {
+          setCustomerOpening(d, id, { outstanding: Number(openingDue) || 0, held: heldClean, ts: new Date().toISOString(), userId: actor });
+        }
         logAudit(d, actor, "customer_added", `Added ${custName(c)} (${c.area})`);
       }
     }, customer ? "Customer updated" : "Customer added");
@@ -369,6 +377,17 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
             ))}</div>
           </div>
           <div className="grid gap-1.5"><Label htmlFor="c-dep">Deposit amount (₹)</Label><Input id="c-dep" inputMode="numeric" value={f.depositAmount} onChange={(e) => set("depositAmount", Number(e.target.value.replace(/\D/g, "")) || 0)} /></div>
+          {!customer && (
+            <div className="grid gap-3 rounded-lg border p-3 sm:col-span-2">
+              <p className="text-sm font-medium">Opening balance <span className="font-normal text-muted-foreground">· only if this customer already buys from you</span></p>
+              <div className="grid gap-1.5 sm:max-w-xs"><Label htmlFor="c-open-due">Amount they owe today (₹)</Label><Input id="c-open-due" inputMode="numeric" maxLength={9} value={openingDue} onChange={(e) => setOpeningDue(e.target.value.replace(/\D/g, "").slice(0, 9))} placeholder="0" /></div>
+              <div className="grid gap-1.5"><Label>Cylinders they already have</Label>
+                <div className="flex flex-wrap gap-3">{sizes.map((z) => (
+                  <div key={z.id} className="flex items-center gap-1.5"><span className="text-sm text-muted-foreground">{z.label}</span><Input aria-label={`${z.label} already with customer`} className="w-16" inputMode="numeric" maxLength={4} value={held[z.id] ?? 0} onChange={(e) => setHeld({ ...held, [z.id]: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
+                ))}</div>
+              </div>
+            </div>
+          )}
         </div>
         {touched && errors.length > 0 && (
           <div role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"><ul className="list-disc pl-5">{errors.map((e) => <li key={e}>{e}</li>)}</ul></div>

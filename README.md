@@ -2,7 +2,14 @@
 
 Clickable demo for a Bharat Gas distributor in Bangalore: stock by size and state, load sheets, driver deliveries with photo + GPS, approvals, end-of-day truck reconciliation, GST invoices, Tally sync (mock), reports and a customer portal.
 
-**Demo only.** There is no backend, no AI and no paid service. All data is sample data kept in the browser's localStorage, so anything you do survives a refresh. **Settings → Reset demo data** rebuilds a fresh 60-day history that ends today.
+**Demo only.** There is no backend, no AI and no paid service. Data is kept in the browser's localStorage, so anything you do survives a refresh.
+
+The app **starts empty**: only the owner login (PIN 1234), agency details and cylinder prices. To set up:
+1. **Trucks & drivers**: add each truck with its driver, and add warehouse staff. Each person then signs in with their own mobile number.
+2. **Stock → Opening stock**: enter what's in the warehouse today.
+3. **Customers → Add customer**: for existing customers, enter what they owe and how many cylinders they already hold.
+
+**Settings → Data** has **Load sample data** (40 customers, 12 trucks, 60 days of history ending today, for showing the app) and **Clear all data** (back to empty). Both keep the owner login and PIN, and both need the word typed to confirm.
 
 Built with Next.js (App Router), TypeScript, Tailwind CSS v4, shadcn/ui (Radix) and Recharts.
 
@@ -63,7 +70,7 @@ Every push to the branch redeploys automatically. Each visitor gets their own co
 | `npm run build` | Static export to `out/` |
 | `npm run lint` | ESLint |
 | `npm run check:data` | Builds the mock data at several times of day and prints stock and alert checks |
-| `npm run test:e2e` | After a build: clicks through driver → approval → load sheet → end of day → Tally → reports → reset |
+| `npm run test:e2e` | After a build: empty start and setup, then driver → approval → load sheet → end of day → Tally → reports → clear data, plus attack cases |
 | `npm run preview:relative` | After a build: copies `out/` to `preview/` with relative asset paths (host under any sub-path) |
 
 ## Where things are
