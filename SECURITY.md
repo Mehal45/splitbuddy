@@ -20,6 +20,7 @@ So: **don't put real customer data, real money figures or real phone numbers int
 | One person, one number | A phone number can belong to only one login. Editing a customer's phone updates their login too (this was a bug, now fixed). |
 | Input checks | Every form validates its fields (GSTIN format and state code, 10-digit mobile, length limits, amount limits, whole-number quantities). Stock and money writes (load sheets, deliveries, end-of-day counts, plant receipts, payments, stock state changes) are checked again in the business engine, so a bad value can't be saved even if a form is bypassed. Examples: stock can't go below zero, payments must be ₹1 to ₹1 crore, and a driver can't record more cash than the bill plus dues. |
 | Photos | Only real image files are accepted (JPG/PNG/WebP, max 25 MB, re-encoded and shrunk). Anything else stored as a "photo" is never rendered. |
+| Purchase receipts | Warehouse staff and the owner can attach the plant's invoice as a photo or PDF. Photos are re-encoded as JPEG (hidden content is dropped); a PDF must really start with `%PDF-`. SVG, HTML and other files are refused. Max 1.5 MB per file, 5 per purchase. Every upload and removal is logged; only the owner can remove a receipt. Customers can never open purchases. |
 | Activity log | Sign-ins, failed sign-ins, "view as", deliveries, approvals, rejections, load sheets, counts, receipts, payments, stock changes, customer edits, settings changes, Tally syncs, opening stock, team changes and data clears are recorded with who and when. The owner sees a failed-sign-in warning. Export to CSV is available. |
 | CSV exports | Text starting with `= + - @` is prefixed with `'` so Excel can't run it as a formula (CSV injection). |
 | Crash safety | Damaged or tampered saved data is detected and replaced with fresh sample data. A screen error shows a recovery screen instead of a blank page. |
@@ -50,7 +51,7 @@ Automated checks (`npm run test:e2e`) try these attacks on every run: wrong PIN,
 - [ ] Postgres with row-level security per role. Encrypted at rest. Daily backups tested by restoring.
 - [ ] Money as integer paise. Invoice numbers issued by the database in sequence, never reused. Invoices immutable once issued: corrections via credit notes.
 - [ ] Append-only audit log on the server (no update or delete for anyone, including the owner). Exported to separate storage.
-- [ ] Photos in private object storage with short-lived signed URLs. Strip EXIF except time and GPS.
+- [ ] Photos and purchase receipts in private object storage with short-lived signed URLs, virus-scanned on upload. Strip EXIF except time and GPS.
 - [ ] Validation on the server with the same rules as `src/lib/validate.ts` and the engine guards.
 
 **Operations**

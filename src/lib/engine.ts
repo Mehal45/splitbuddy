@@ -4,7 +4,7 @@
 import { computeTotals } from "./gst";
 import { dayKey } from "./format";
 import type {
-  AuditAction, CylState, Customer, DB, Delivery, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
+  Attachment, AuditAction, CylState, Customer, DB, Delivery, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
 } from "./types";
 
 export const WH = "WH";
@@ -349,4 +349,42 @@ export function setCustomerOpening(db: DB, customerId: string, a: { outstanding:
   for (const [size, q] of Object.entries(a.held)) {
     move(db, { ts: a.ts, userId: a.userId, from: "OPENING", to: custLoc(customerId), size, state: "empty", qty: q, refType: "opening", note: "Cylinders with customer before start" });
   }
+}
+
+// ---------- purchase receipts (uploaded documents) ----------
+
+export const MAX_RECEIPTS_PER_INVOICE = 5;
+export const MAX_RECEIPT_BYTES = 1_500_000; // ~1.5 MB per file while data lives in the browser
+
+// Only ever store or show re-encoded JPEG photos and real PDFs.
+export function isSafeAttachment(a: Pick<Attachment, "kind" | "dataUrl">) {
+  if (a.kind === "image") return /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(a.dataUrl);
+  if (a.kind === "pdf") return /^data:application\/pdf;base64,JVBERi0[A-Za-z0-9+/=]*$/.test(a.dataUrl); // "%PDF-"
+  return false;
+}
+
+export function cleanFileName(name: string) {
+  const base = name.replace(/[^\w.\- ()]/g, "_").replace(/\s+/g, " ").trim().slice(0, 80);
+  return base || "receipt";
+}
+
+export function attachToInvoice(db: DB, invoiceId: string, a: Omit<Attachment, "id">) {
+  const inv = db.invoices.find((i) => i.id === invoiceId);
+  if (!inv) fail("Invoice not found.");
+  if (inv!.kind !== "purchase") fail("Receipts can only be attached to purchases.");
+  if (!isSafeAttachment(a)) fail("Only JPG/PNG photos and PDF files can be attached.");
+  if (a.bytes > MAX_RECEIPT_BYTES) fail("That file is too large (max 1.5 MB).");
+  const list = (inv!.attachments ??= []);
+  if (list.length >= MAX_RECEIPTS_PER_INVOICE) fail(`A purchase can have at most ${MAX_RECEIPTS_PER_INVOICE} receipts.`);
+  const att: Attachment = { id: nextId(db, "att"), ...a, name: cleanFileName(a.name) };
+  list.push(att);
+  return att;
+}
+
+export function removeAttachment(db: DB, invoiceId: string, attachmentId: string) {
+  const inv = db.invoices.find((i) => i.id === invoiceId);
+  const list = inv?.attachments ?? [];
+  const i = list.findIndex((x) => x.id === attachmentId);
+  if (!inv || i < 0) fail("Receipt not found.");
+  return list.splice(i, 1)[0];
 }

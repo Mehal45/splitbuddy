@@ -95,8 +95,32 @@ await dlg.getByRole("textbox", { name: "19 kg full", exact: true }).fill("10");
 if (!(await dlg.getByRole("button", { name: "Save receipt" }).isDisabled())) throw new Error("save must be blocked when above stock");
 await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).fill("1500");
 if (await dlg.getByRole("button", { name: "Save receipt" }).isDisabled()) throw new Error("save should work within stock");
-await page.keyboard.press("Escape");
 step("value above stock is flagged red and blocks Save instead of being changed");
+
+// Upload the plant's receipt with the purchase: photo + PDF; fakes are refused
+await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).fill("0");
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEklEQVR4nGP4z8DAwMDAwMAAAP4EAf6Vf7kAAAAASUVORK5CYII=", "base64");
+const pdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+await page.getByLabel("Choose receipt files").setInputFiles([
+  { name: "plant-invoice.png", mimeType: "image/png", buffer: png },
+  { name: "BPCL-invoice.pdf", mimeType: "application/pdf", buffer: pdf },
+  { name: "fake.pdf", mimeType: "application/pdf", buffer: Buffer.from("<html><script>alert(1)</script>") },
+  { name: "logo.svg", mimeType: "image/svg+xml", buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'/>") },
+]);
+await page.getByText("fake.pdf: this isn't a real PDF file.").waitFor();
+await page.getByText("logo.svg: only JPG or PNG photos and PDF files can be uploaded.").waitFor();
+await dlg.getByText("plant-invoice.jpg").waitFor();
+await dlg.getByText("BPCL-invoice.pdf").waitFor();
+await dlg.getByRole("button", { name: "Save receipt" }).click();
+await page.getByText("Stock receipt saved with 2 attached files.").waitFor();
+const purchase = (await db()).invoices.filter((i) => i.kind === "purchase").at(-1);
+if (purchase.attachments?.length !== 2 || purchase.attachments[0].kind !== "image" || !purchase.attachments[0].dataUrl.startsWith("data:image/jpeg;base64,") || purchase.attachments[1].kind !== "pdf") throw new Error("receipts not saved correctly");
+await page.goto(base + `#/invoices/${purchase.id}`);
+await page.getByText("2 attached", { exact: true }).waitFor();
+await page.getByRole("button", { name: "Open plant-invoice.jpg" }).click();
+await page.getByRole("dialog").getByRole("img", { name: "plant-invoice.jpg" }).waitFor();
+await page.keyboard.press("Escape");
+step("plant receipt photo + PDF uploaded with the purchase; fake PDF and SVG refused");
 
 await page.goto(base + "#/customers");
 await page.getByRole("button", { name: "Add customer" }).click();
@@ -112,7 +136,7 @@ let setup = await db();
 const sharma = setup.customers.find((c) => c.name === "Sharma Tiffins");
 const whFull19 = setup.movements.filter((m) => m.to === "WH" && m.size === "19" && m.state === "full").reduce((n, m) => n + m.qty, 0);
 const whEmpty19 = setup.movements.filter((m) => m.to === "WH" && m.size === "19" && m.state === "empty").reduce((n, m) => n + m.qty, 0);
-if (!sharma || sharma.openingOutstanding !== 2500 || sharma.openingEmpties["19"] !== 2 || whFull19 !== 3 || whEmpty19 !== 1500) throw new Error("setup from empty did not save correctly");
+if (!sharma || sharma.openingOutstanding !== 2500 || sharma.openingEmpties["19"] !== 2 || whFull19 !== 13 || whEmpty19 !== 1500) throw new Error("setup from empty did not save correctly");
 step("from empty: added truck + driver, staff, opening stock and a customer with opening dues");
 
 // The new driver signs in; real numbers are never listed on the login page
@@ -305,6 +329,20 @@ await loginAs("u-c1");
 await page.goto(base + `#/invoices/${other.id}`);
 await page.getByText("Invoice not found").waitFor();
 step("customer cannot open another customer's invoice");
+
+// Warehouse staff can attach receipts to existing purchases; only the owner can remove them
+const anyPurchase = (await db()).invoices.find((i) => i.kind === "purchase");
+await loginAs("u-wh1");
+await page.goto(base + `#/invoices/${anyPurchase.id}`);
+await page.getByText("No receipt attached yet").waitFor();
+await page.getByLabel("Choose receipt files").setInputFiles([{ name: "scan.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEklEQVR4nGP4z8DAwMDAwMAAAP4EAf6Vf7kAAAAASUVORK5CYII=", "base64") }]);
+await page.getByText("Receipt uploaded", { exact: true }).waitFor();
+await page.getByText("1 attached", { exact: true }).waitFor();
+if (await page.getByRole("button", { name: /^Remove / }).count()) throw new Error("staff must not remove receipts");
+await loginAs("u-c1");
+await page.goto(base + `#/invoices/${anyPurchase.id}`);
+await page.getByText("Invoice not found").waitFor();
+step("warehouse staff attach receipts to past purchases; can't remove; customers can't see them");
 
 // Excel formula injection through a customer name is neutralised in CSV exports
 await loginAs("u-owner");

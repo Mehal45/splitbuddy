@@ -6,7 +6,7 @@ Clickable demo for a Bharat Gas distributor in Bangalore: stock by size and stat
 
 The app **starts empty**: only the owner login (PIN 1234), agency details and cylinder prices. To set up:
 1. **Trucks & drivers**: add each truck with its driver, and add warehouse staff. Each person then signs in with their own mobile number.
-2. **Stock → Opening stock**: enter what's in the warehouse today.
+2. **Stock → Opening stock**: enter what's in the warehouse today. Stock from the plant comes in through **Purchases → Record receipt**, where the warehouse can attach a photo or PDF of the plant's invoice (or add it later on the purchase page).
 3. **Customers → Add customer**: for existing customers, enter what they owe and how many cylinders they already hold.
 
 **Settings → Data** has **Load sample data** (40 customers, 12 trucks, 60 days of history ending today, for showing the app) and **Clear all data** (back to empty). Both keep the owner login and PIN, and both need the word typed to confirm.

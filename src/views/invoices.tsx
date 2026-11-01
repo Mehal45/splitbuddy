@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowLeft, Factory, Plus, Printer } from "lucide-react";
+import { ArrowLeft, Factory, Paperclip, Plus, Printer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
-import { createPurchase, locQty, logAudit, WH } from "@/lib/engine";
+import { attachToInvoice, createPurchase, locQty, logAudit, WH } from "@/lib/engine";
+import { InvoiceReceipts, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
 import { computeTotals, lineBreakup } from "@/lib/gst";
 import { amountInWords, useActorId, useSizes } from "@/lib/hooks";
@@ -46,7 +47,10 @@ function InvoiceTable({ invoices, kind }: { invoices: Invoice[]; kind: "sale" | 
       <TableBody>
         {invoices.slice(0, 300).map((i) => (
           <TableRow key={i.id} className="cursor-pointer" onClick={() => navigate(`/invoices/${i.id}`)}>
-            <TableCell><Link href={`/invoices/${i.id}`} className="font-medium text-primary hover:underline">{i.no}</Link> {sourceBadge(i.source)}</TableCell>
+            <TableCell>
+              <Link href={`/invoices/${i.id}`} className="font-medium text-primary hover:underline">{i.no}</Link> {sourceBadge(i.source)}
+              {(i.attachments?.length ?? 0) > 0 && <Badge variant="outline" className="ml-1" title="Receipt attached"><Paperclip /> {i.attachments!.length}</Badge>}
+            </TableCell>
             <TableCell>{fmtDate(i.date)}</TableCell>
             <TableCell className="max-w-[220px] truncate">{i.partyName}{i.interstate && <Badge variant="outline" className="ml-1.5">Interstate</Badge>}</TableCell>
             <TableCell className="text-xs text-muted-foreground">{i.lines.filter((l) => l.qty).map((l) => `${l.qty}×${sizes.find((s) => s.id === l.size)?.label ?? l.size}`).join(", ")}</TableCell>
@@ -133,9 +137,10 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [full, setFull] = React.useState<SizeQty>({});
   const [empties, setEmpties] = React.useState<SizeQty>({});
   const [defective, setDefective] = React.useState<SizeQty>({});
+  const [receipts, setReceipts] = React.useState<PendingReceipt[]>([]);
   React.useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reset form when dialog opens
-    if (open) { setFull({}); setEmpties({}); setDefective({}); setPlantId("pl1"); }
+    if (open) { setFull({}); setEmpties({}); setDefective({}); setPlantId("pl1"); setReceipts([]); }
   }, [open]);
   const plant = db.plants.find((p) => p.id === plantId)!;
   const interstate = plant.state !== db.settings.homeState;
@@ -149,7 +154,11 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
     const ok = act((d) => {
       const inv = createPurchase(d, { date: dayKey(), ts: new Date().toISOString(), plantId, full: clean(full), emptiesBack: clean(empties), defectiveBack: clean(defective), userId: actor, source: "app" });
       logAudit(d, actor, "purchase", `Plant receipt ${inv.no} from ${plant.name}: ${rupees(inv.total)}`);
-    }, "Stock receipt saved. Warehouse stock updated.");
+      for (const r of receipts) {
+        const att = attachToInvoice(d, inv.id, { ...r, uploadedBy: actor, ts: new Date().toISOString() });
+        logAudit(d, actor, "receipt_attached", `${att.name} on ${inv.no}`);
+      }
+    }, receipts.length ? `Stock receipt saved with ${receipts.length} attached ${receipts.length === 1 ? "file" : "files"}.` : "Stock receipt saved. Warehouse stock updated.");
     if (ok) onOpenChange(false);
   };
 
@@ -191,6 +200,7 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             <div><p className="text-muted-foreground">IGST</p><p className="font-medium tabular-nums">{rupees(totals.igst, true)}</p></div>
             <div><p className="text-muted-foreground">Total</p><p className="font-semibold tabular-nums">{rupees(totals.total, true)}</p></div>
           </div>
+          <ReceiptPicker value={receipts} onChange={setReceipts} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -286,6 +296,7 @@ export function InvoiceView({ id }: { id: string }) {
               <dt className="border-t pt-1 font-semibold">Total</dt><dd className="border-t pt-1 text-right font-semibold tabular-nums">{rupees(inv.total, true)}</dd>
             </dl>
           </div>
+          {inv.kind === "purchase" && role !== "customer" && <InvoiceReceipts invoice={inv} />}
           <p className="border-t pt-4 text-xs text-muted-foreground">Demo invoice generated by {db.settings.agencyName} app. Prices are GST inclusive; tax shown is back-calculated.</p>
         </CardContent>
       </Card>

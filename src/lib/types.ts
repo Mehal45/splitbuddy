@@ -153,6 +153,18 @@ export interface InvoiceLine {
   gstRate: number;
 }
 
+// A scanned or photographed supplier document (e.g. the plant's tax invoice /
+// delivery receipt) attached to a purchase.
+export interface Attachment {
+  id: string;
+  name: string; // original file name, cleaned
+  kind: "image" | "pdf";
+  dataUrl: string; // data:image/jpeg;base64,… or data:application/pdf;base64,…
+  bytes: number;
+  uploadedBy: string;
+  ts: string;
+}
+
 export interface Invoice {
   id: string;
   no: string;
@@ -172,6 +184,7 @@ export interface Invoice {
   total: number;
   source: "app" | "tally" | "seed";
   deliveryId?: string;
+  attachments?: Attachment[]; // purchase receipts uploaded by the warehouse
 }
 
 export interface Payment {
@@ -216,7 +229,7 @@ export type AuditAction =
   | "delivery_submitted" | "delivery_approved" | "delivery_rejected"
   | "load_sheet" | "reconciliation" | "purchase" | "payment" | "stock_state_change"
   | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset"
-  | "team_changed" | "opening_stock";
+  | "team_changed" | "opening_stock" | "receipt_attached" | "receipt_removed";
 
 export interface AuditEntry {
   id: string;
