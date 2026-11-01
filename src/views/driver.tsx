@@ -7,8 +7,9 @@ import { Camera, CheckCircle2, ChevronRight, ImageIcon, IndianRupee, Loader2, Ma
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AckPhoto, ackPlaceholder, EmptyState, StatusBadge, Stepper, qtySummary } from "@/components/app/common";
-import { locQty, logAudit, priceFor, submitDelivery, truckLoc } from "@/lib/engine";
+import { AckPhoto, ackPlaceholder, EmptyState, payLabel, StatusBadge, Stepper, qtySummary } from "@/components/app/common";
+import { Label } from "@/components/ui/label";
+import { locQty, logAudit, makePayment, payParts, payStatus, priceFor, submitDelivery, truckLoc } from "@/lib/engine";
 import { custName, dayKey, distanceKm, fmtDate, fmtTime, rupees } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
 import { Link, navigate } from "@/lib/router";
@@ -31,8 +32,9 @@ export function DriverHome() {
   const sizes = useSizes();
   const { driver, truckId, load, today } = useDriver();
   const mine = db.deliveries.filter((d) => d.driverId === driver.id && d.date === today).sort((a, b) => b.ts.localeCompare(a.ts));
-  const cash = mine.filter((d) => d.status !== "rejected" && d.payment?.mode === "cash").reduce((s, d) => s + d.payment!.amount, 0);
-  const upi = mine.filter((d) => d.status !== "rejected" && d.payment?.mode === "upi").reduce((s, d) => s + d.payment!.amount, 0);
+  const kept = mine.filter((d) => d.status !== "rejected");
+  const cash = kept.reduce((sum, d) => sum + payParts(d.payment).cash, 0);
+  const upi = kept.reduce((sum, d) => sum + payParts(d.payment).upi, 0);
   const returned = db.reconciliations.some((r) => r.truckId === truckId && r.date === today);
 
   return (
@@ -152,8 +154,8 @@ export function NewDeliveryView() {
   const [customer, setCustomer] = React.useState<Customer | null>(null);
   const [full, setFull] = React.useState<SizeQty>({});
   const [empty, setEmpty] = React.useState<SizeQty>({});
-  const [amount, setAmount] = React.useState("");
-  const [mode, setMode] = React.useState<"cash" | "upi">("cash");
+  const [cashIn, setCashIn] = React.useState("");
+  const [upiIn, setUpiIn] = React.useState("");
   const [photo, setPhoto] = React.useState<string | null>(null);
   const [busyPhoto, setBusyPhoto] = React.useState(false);
   const [gps, setGps] = React.useState<GeoPoint | null>(null);
@@ -189,8 +191,8 @@ export function NewDeliveryView() {
     if (last) Object.assign(f, last.full);
     setFull(f);
     setEmpty({ ...f });
-    setAmount("");
-    setMode("cash");
+    setCashIn("");
+    setUpiIn("");
   };
 
   const value = customer ? Object.entries(full).reduce((s, [size, q]) => s + q * priceFor(db, size, customer.type), 0) : 0;
@@ -198,9 +200,13 @@ export function NewDeliveryView() {
   const totalEmpty = Object.values(empty).reduce((a, b) => a + b, 0);
   const short = sizes.filter((s) => (full[s.id] ?? 0) > locQty(stock, truckLoc(truckId), s.id, "full"));
   const km = customer && gps ? distanceKm(customer, gps) : 0;
-  const amt = Number(amount) || 0;
-  const maxCollect = value + Math.max(0, customer ? balances[customer.id].outstanding : 0);
-  const payErr = amt > 0 && amt > maxCollect ? `That's more than this bill plus the customer's dues (${rupees(maxCollect)}). Check the amount.` : null;
+  const cash = Number(cashIn) || 0;
+  const upi = Number(upiIn) || 0;
+  const amt = cash + upi;
+  const oldDues = Math.max(0, customer ? balances[customer.id].outstanding : 0);
+  const maxCollect = value + oldDues;
+  const payErr = amt > maxCollect ? `Cash + UPI (${rupees(amt)}) is more than this bill plus the customer's old dues (${rupees(maxCollect)}). Check the amounts.` : null;
+  const status = payStatus(amt, value);
   const canSubmit = customer && (totalFull > 0 || totalEmpty > 0) && photo && gps && short.length === 0 && !payErr;
 
   const onFile = async (f?: File) => {
@@ -217,8 +223,8 @@ export function NewDeliveryView() {
     if (!customer || !gps || !photo) return;
     const clean = (q: SizeQty) => Object.fromEntries(Object.entries(q).filter(([, n]) => n > 0));
     const ok = act((d) => {
-      const del = submitDelivery(d, { ts: new Date().toISOString(), truckId, driverId: driver.id, customerId: customer.id, full: clean(full), empty: clean(empty), payment: amt > 0 ? { amount: amt, mode } : null, photo, gps, userId: actor });
-      logAudit(d, actor, "delivery_submitted", `${del.no} to ${custName(customer)}${amt > 0 ? `, collected ${rupees(amt)} ${mode.toUpperCase()}` : ""}${gps.mocked ? " (mock GPS)" : ""}`);
+      const del = submitDelivery(d, { ts: new Date().toISOString(), truckId, driverId: driver.id, customerId: customer.id, full: clean(full), empty: clean(empty), payment: makePayment(cash, upi), photo, gps, userId: actor });
+      logAudit(d, actor, "delivery_submitted", `${del.no} to ${custName(customer)}, bill ${rupees(value)}, collected ${payLabel(del.payment)}${gps.mocked ? " (mock GPS)" : ""}`);
     }, "Delivery saved. Waiting for warehouse approval.");
     if (ok) navigate("/");
   };
@@ -263,19 +269,49 @@ export function NewDeliveryView() {
         })}
       </section>
 
-      <section className="space-y-2">
-        <h2 className="font-semibold">Payment collected <span className="font-normal text-muted-foreground">(optional)</span></h2>
-        <p className="text-sm text-muted-foreground">Bill value {rupees(value)} · {customer.paymentMode === "cod" ? "Cash on delivery customer" : "Credit customer"}</p>
-        <div className="relative">
-          <IndianRupee className="absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" />
-          <Input inputMode="numeric" maxLength={8} value={amount} aria-invalid={!!payErr} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, "").slice(0, 8))} placeholder="0" className="h-14 pl-10 text-xl font-semibold" aria-label="Amount collected" />
+      <section className="space-y-3">
+        <h2 className="font-semibold">Payment</h2>
+        <div className="flex items-baseline justify-between rounded-lg bg-muted/60 px-4 py-3">
+          <span className="text-sm text-muted-foreground">Total bill</span>
+          <span className="text-2xl font-semibold tabular-nums">{rupees(value)}</span>
         </div>
-        {payErr && <p role="alert" className="text-sm text-destructive">{payErr}</p>}
+        <p className="-mt-1 text-xs text-muted-foreground">
+          {customer.paymentMode === "cod" ? "Cash on delivery customer" : "Credit customer"}{oldDues > 0 && <> · old dues {rupees(oldDues)}</>}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          {([["Cash", cashIn, setCashIn], ["UPI", upiIn, setUpiIn]] as const).map(([label, v, set]) => (
+            <div key={label} className="grid gap-1.5">
+              <Label htmlFor={`pay-${label}`}>{label} received</Label>
+              <div className="relative">
+                <IndianRupee className="absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted-foreground" />
+                <Input id={`pay-${label}`} inputMode="numeric" maxLength={8} value={v} aria-invalid={!!payErr || undefined} placeholder="0"
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => set(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                  className="h-14 pl-10 text-xl font-semibold tabular-nums" />
+              </div>
+            </div>
+          ))}
+        </div>
         <div className="grid grid-cols-3 gap-2">
-          <Button type="button" size="xl" variant="outline" onClick={() => setAmount(String(value))} disabled={!value}>Full amount</Button>
-          <Button type="button" size="xl" variant={mode === "cash" ? "default" : "outline"} onClick={() => setMode("cash")}>Cash</Button>
-          <Button type="button" size="xl" variant={mode === "upi" ? "default" : "outline"} onClick={() => setMode("upi")}>UPI</Button>
+          <Button type="button" size="lg" variant="outline" onClick={() => { setCashIn(String(value)); setUpiIn(""); }} disabled={!value}>All cash</Button>
+          <Button type="button" size="lg" variant="outline" onClick={() => { setUpiIn(String(value)); setCashIn(""); }} disabled={!value}>All UPI</Button>
+          <Button type="button" size="lg" variant="outline" onClick={() => { const rest = Math.max(0, value - cash); setUpiIn(rest ? String(rest) : ""); }} disabled={!value || cash <= 0 || cash >= value}>Rest by UPI</Button>
         </div>
+        {payErr ? <p role="alert" className="text-sm text-destructive">{payErr}</p> : (
+          <div className={cn("flex items-center justify-between gap-2 rounded-lg border px-4 py-3 text-sm",
+            status === "paid" && "border-success/40 bg-success/10", status === "part" && "border-warning/50 bg-warning/10")}>
+            <span>
+              Collected <b className="tabular-nums">{rupees(amt)}</b>
+              {cash > 0 && upi > 0 && <span className="text-muted-foreground"> ({rupees(cash)} cash + {rupees(upi)} UPI)</span>}
+            </span>
+            <span className="text-right font-medium">
+              {status === "paid" && <span className="text-success">✓ Fully paid · entry closed</span>}
+              {status === "part" && <span className="text-warning-foreground">{rupees(value - amt)} balance → dues</span>}
+              {status === "extra" && <span className="text-info">{rupees(amt - value)} towards old dues</span>}
+              {status === "unpaid" && <span className="text-muted-foreground">{value ? `${rupees(value)} → customer's dues` : "Nothing to pay"}</span>}
+            </span>
+          </div>
+        )}
       </section>
 
       <section className="space-y-2">
@@ -310,9 +346,10 @@ export function NewDeliveryView() {
       </section>
 
       {short.length > 0 && <p className="text-sm font-medium text-destructive">Not enough full cylinders on your truck for {short.map((s) => s.label).join(", ")}.</p>}
-      <div className="sticky bottom-20 z-10">
-        <Button size="xl" variant="success" className="h-16 w-full text-lg shadow-lg" disabled={!canSubmit} onClick={submit}><CheckCircle2 className="size-6" /> Submit delivery</Button>
-        {!photo && <p className="mt-1 text-center text-xs text-muted-foreground">Add the acknowledgement photo to submit</p>}
+      {/* Plain button at the end of the form (not floating over the content) */}
+      <div className="pt-2">
+        <Button size="xl" variant="success" className="h-16 w-full text-lg" disabled={!canSubmit} onClick={submit}><CheckCircle2 className="size-6" /> Submit delivery</Button>
+        {!photo && <p className="mt-2 text-center text-xs text-muted-foreground">Add the acknowledgement photo to submit</p>}
       </div>
     </div>
   );
@@ -341,7 +378,7 @@ export function DriverHistoryView() {
                     <AckPhoto delivery={d} customer={c} className="size-14 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium">{custName(c)}</p>
-                      <p className="text-xs text-muted-foreground">{fmtTime(d.ts)} · {qtySummary(d.full, sizes)}{d.payment && <> · {rupees(d.payment.amount)} {d.payment.mode.toUpperCase()}</>}</p>
+                      <p className="text-xs text-muted-foreground">{fmtTime(d.ts)} · {qtySummary(d.full, sizes)}{d.payment && <> · {payLabel(d.payment)}</>}</p>
                       {d.status === "rejected" && <p className="text-xs text-destructive">{d.rejectReason}</p>}
                     </div>
                     <StatusBadge status={d.status} />

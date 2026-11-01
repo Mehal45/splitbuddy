@@ -138,7 +138,11 @@ export function submitDelivery(db: DB, a: {
   if (!Number.isFinite(a.gps.lat) || !Number.isFinite(a.gps.lng) || Math.abs(a.gps.lat) > 90 || Math.abs(a.gps.lng) > 180) fail("Location is not valid.");
   if (a.payment) {
     if (!Number.isInteger(a.payment.amount) || a.payment.amount <= 0 || a.payment.amount > 1_00_00_000) fail("Payment amount is not valid.");
-    if (a.payment.mode !== "cash" && a.payment.mode !== "upi") fail("Payment mode must be cash or UPI.");
+    if (!["cash", "upi", "split"].includes(a.payment.mode)) fail("Payment mode must be cash, UPI or both.");
+    if (a.payment.mode === "split") {
+      const { cash = -1, upi = -1 } = a.payment;
+      if (!Number.isInteger(cash) || !Number.isInteger(upi) || cash <= 0 || upi <= 0 || cash + upi !== a.payment.amount) fail("Cash and UPI parts must add up to the total collected.");
+    }
   }
   const id = nextId(db, "d");
   const date = dayKey(a.ts);
@@ -184,8 +188,10 @@ export function approveDelivery(db: DB, id: string, userId: string, ts: string) 
   d.reviewedAt = ts;
   const inv = createSaleInvoice(db, { customerId: d.customerId, date: d.date, ts: d.ts, full: d.full, empty: d.empty, source: "app", deliveryId: d.id });
   d.invoiceId = inv.id;
-  if (d.payment && d.payment.amount > 0) {
-    db.payments.push({ id: nextId(db, "p"), customerId: d.customerId, date: d.date, ts: d.ts, amount: d.payment.amount, mode: d.payment.mode, deliveryId: d.id, source: "app", ref: d.no });
+  // One payment record per mode, so cash and UPI reconcile separately
+  const parts = payParts(d.payment);
+  for (const mode of ["cash", "upi"] as const) {
+    if (parts[mode] > 0) db.payments.push({ id: nextId(db, "p"), customerId: d.customerId, date: d.date, ts: d.ts, amount: parts[mode], mode, deliveryId: d.id, source: "app", ref: d.no });
   }
 }
 
@@ -387,4 +393,33 @@ export function removeAttachment(db: DB, invoiceId: string, attachmentId: string
   const i = list.findIndex((x) => x.id === attachmentId);
   if (!inv || i < 0) fail("Receipt not found.");
   return list.splice(i, 1)[0];
+}
+
+// ---------- delivery payments (cash, UPI or both) ----------
+
+export function payParts(p: Delivery["payment"]): { cash: number; upi: number } {
+  if (!p) return { cash: 0, upi: 0 };
+  if (p.mode === "split") return { cash: p.cash ?? 0, upi: p.upi ?? 0 };
+  return p.mode === "cash" ? { cash: p.amount, upi: 0 } : { cash: 0, upi: p.amount };
+}
+
+export function makePayment(cash: number, upi: number): Delivery["payment"] {
+  if (cash > 0 && upi > 0) return { amount: cash + upi, mode: "split", cash, upi };
+  if (cash > 0) return { amount: cash, mode: "cash" };
+  if (upi > 0) return { amount: upi, mode: "upi" };
+  return null;
+}
+
+export function deliveryBill(db: DB, d: Pick<Delivery, "customerId" | "full">) {
+  const c = db.customers.find((x) => x.id === d.customerId);
+  if (!c) return 0;
+  return Object.entries(d.full).reduce((sum, [size, q]) => sum + q * priceFor(db, size, c.type), 0);
+}
+
+/** How much of this delivery's bill was paid on the spot. */
+export function payStatus(paid: number, bill: number): "paid" | "part" | "unpaid" | "extra" {
+  if (paid <= 0) return "unpaid";
+  if (paid < bill) return "part";
+  if (paid === bill) return "paid";
+  return "extra";
 }

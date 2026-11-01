@@ -8,8 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isSafePhoto } from "@/lib/engine";
-import { dayKey, distanceKm, fmtDateTime } from "@/lib/format";
+import { isSafePhoto, payParts, payStatus } from "@/lib/engine";
+import { dayKey, distanceKm, fmtDateTime, rupees } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Customer, Delivery, DeliveryStatus, SizeQty } from "@/lib/types";
 
@@ -263,4 +263,20 @@ export function Stepper({ value, onChange, min = 0, max = 9999, large = false, l
 
 export function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
   return <h2 className={cn("mb-3 text-base font-semibold", className)}>{children}</h2>;
+}
+
+// ---------- delivery payment (cash / UPI / both) ----------
+
+export function payLabel(p: Delivery["payment"]) {
+  const { cash, upi } = payParts(p);
+  const parts = [cash > 0 && `${rupees(cash)} cash`, upi > 0 && `${rupees(upi)} UPI`].filter(Boolean);
+  return parts.length ? parts.join(" + ") : "Not collected";
+}
+
+export function PayStatusBadge({ paid, bill }: { paid: number; bill: number }) {
+  const st = payStatus(paid, bill);
+  if (st === "paid") return <Badge variant="success">Fully paid</Badge>;
+  if (st === "extra") return <Badge variant="info">Paid + {rupees(paid - bill)} towards dues</Badge>;
+  if (st === "part") return <Badge variant="warning">Part paid · {rupees(bill - paid)} due</Badge>;
+  return <Badge variant="outline">Not paid · on account</Badge>;
 }

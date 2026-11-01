@@ -187,17 +187,29 @@ await page.getByRole("link", { name: "New delivery" }).first().click();
 await page.getByPlaceholder("Search name, area or phone").fill("tandoor");
 await page.getByRole("button", { name: /Tandoor Tales Kitchen/ }).click();
 await page.getByRole("button", { name: "Increase 19 kg full given" }).click();
-await page.getByRole("button", { name: "Full amount" }).click();
-await page.getByRole("button", { name: "UPI" }).click();
+// Split payment: part cash, rest by UPI closes the bill
+await page.getByLabel("Cash received").fill("2000");
+await page.getByText(/balance → dues/).waitFor();
+await page.getByRole("button", { name: "Rest by UPI" }).click();
+await page.getByText("✓ Fully paid · entry closed").waitFor();
+// Too much is refused (more than bill + old dues)
+const upiBefore = await page.getByLabel("UPI received").inputValue();
+await page.getByLabel("UPI received").fill("9999999");
+await page.getByText(/is more than this bill plus the customer's old dues/).waitFor();
+await page.getByLabel("UPI received").fill(upiBefore);
+await page.getByText("✓ Fully paid · entry closed").waitFor();
 await page.getByRole("button", { name: /Use a sample photo/ }).click();
 await page.getByText(/Location (captured|\(demo fallback\))/).waitFor({ timeout: 10000 });
+const stickiness = await page.getByRole("button", { name: "Submit delivery" }).evaluate((b) => [getComputedStyle(b).position, getComputedStyle(b.parentElement).position]);
+if (stickiness.some((p) => p === "sticky" || p === "fixed")) throw new Error("submit button must not be sticky");
 const before = await db();
 await page.getByRole("button", { name: "Submit delivery" }).click();
 await page.getByText("Delivery saved").waitFor();
 let after = await db();
 const newD = after.deliveries.at(-1);
 if (after.deliveries.length !== before.deliveries.length + 1 || newD.status !== "pending") throw new Error("delivery not created");
-step(`driver submitted ${newD.no} (pending, GPS ${newD.gps.mocked ? "mock" : "real"})`);
+if (newD.payment?.mode !== "split" || newD.payment.cash !== 2000 || newD.payment.upi !== newD.payment.amount - 2000) throw new Error("split payment not saved");
+step(`driver submitted ${newD.no} with split payment ₹2,000 cash + ₹${newD.payment.upi} UPI (pending, GPS ${newD.gps.mocked ? "mock" : "real"})`);
 
 // Logging out returns the driver to the driver login page
 await page.getByRole("button", { name: /RK/ }).click();
@@ -222,8 +234,10 @@ await page.getByText(`Approved ${newD.no}`).waitFor();
 after = await db();
 const approved = after.deliveries.find((d) => d.id === newD.id);
 const inv = after.invoices.find((i) => i.id === approved.invoiceId);
-if (approved.status !== "approved" || !inv || !after.payments.some((p) => p.deliveryId === newD.id)) throw new Error("approve failed");
-step(`owner approved → invoice ${inv.no} ₹${inv.total} (CGST ${inv.cgst} + SGST ${inv.sgst}) and payment recorded`);
+const delPays = after.payments.filter((p) => p.deliveryId === newD.id);
+if (approved.status !== "approved" || !inv || delPays.length !== 2 || !delPays.some((p) => p.mode === "cash" && p.amount === 2000) || !delPays.some((p) => p.mode === "upi")) throw new Error("approve failed or split payment not recorded as cash + UPI");
+if (Math.round(inv.total) !== newD.payment.amount) throw new Error("split should equal the bill");
+step(`owner approved → invoice ${inv.no} ₹${inv.total} (CGST ${inv.cgst} + SGST ${inv.sgst}); cash and UPI recorded as two payments`);
 
 // Reload: data persists
 await page.reload();

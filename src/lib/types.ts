@@ -135,7 +135,8 @@ export interface Delivery {
   customerId: string;
   full: SizeQty;
   empty: SizeQty;
-  payment: { amount: number; mode: "cash" | "upi" } | null;
+  // amount = total collected. A split payment keeps the cash and UPI parts.
+  payment: { amount: number; mode: "cash" | "upi" | "split"; cash?: number; upi?: number } | null;
   photo: string; // "ph:<n>" placeholder or data URL
   gps: GeoPoint;
   status: DeliveryStatus;

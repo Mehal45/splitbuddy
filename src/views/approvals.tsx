@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { AckPhoto, EmptyState, MiniMap, PageHeader, StatusBadge } from "@/components/app/common";
+import { AckPhoto, EmptyState, MiniMap, PageHeader, PayStatusBadge, payLabel, StatusBadge } from "@/components/app/common";
 import { approveDelivery, logAudit, priceFor, rejectDelivery } from "@/lib/engine";
 import { custName, dayKey, distanceKm, fmtDateTime, hoursSince, rupees, timeAgo } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
@@ -103,7 +103,7 @@ export function ApprovalCard({ d, readOnly = false }: { d: Delivery; readOnly?: 
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
             <span>Invoice value <b className="tabular-nums">{rupees(amount)}</b></span>
-            <span className="flex items-center gap-1"><IndianRupee className="size-3.5" />Collected: {d.payment ? <b>{rupees(d.payment.amount)} {d.payment.mode.toUpperCase()}</b> : <span className="text-muted-foreground">none</span>}</span>
+            <span className="flex flex-wrap items-center gap-1.5"><IndianRupee className="size-3.5" />Collected: <b>{payLabel(d.payment)}</b> <PayStatusBadge paid={d.payment?.amount ?? 0} bill={amount} /></span>
           </div>
           {d.status === "rejected" && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">Rejected: {d.rejectReason}</p>}
           {d.status !== "pending" && d.reviewedBy && <p className="text-xs text-muted-foreground">Reviewed by {L.user.get(d.reviewedBy)?.name} on {fmtDateTime(d.reviewedAt!)}</p>}

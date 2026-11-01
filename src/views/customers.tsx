@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
+import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, payLabel, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
 import { logAudit, nextId, recordPayment, setCustomerOpening } from "@/lib/engine";
 import { AREAS } from "@/lib/seed";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
@@ -156,7 +156,7 @@ export function CustomerDetail({ id, portal = false, tab }: { id: string; portal
             <div className="min-w-0 flex-1 text-sm">
               <p className="font-medium">{fmtDateTime(d.ts)} <span className="font-normal text-muted-foreground">· {d.no}</span></p>
               <p className="text-muted-foreground">Full {qtySummary(d.full, sizes)} · Empties back {qtySummary(d.empty, sizes)}</p>
-              <p className="text-xs text-muted-foreground">{L.driver.get(d.driverId)?.name} · {L.truck.get(d.truckId)?.regNo}{d.payment && <> · Paid {rupees(d.payment.amount)} {d.payment.mode.toUpperCase()}</>}</p>
+              <p className="text-xs text-muted-foreground">{L.driver.get(d.driverId)?.name} · {L.truck.get(d.truckId)?.regNo}{d.payment && <> · Paid {payLabel(d.payment)}</>}</p>
               {d.status === "rejected" && !portal && <p className="text-xs text-destructive">{d.rejectReason}</p>}
             </div>
             <div className="flex flex-col items-end gap-1">
