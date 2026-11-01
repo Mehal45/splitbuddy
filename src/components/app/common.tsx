@@ -233,23 +233,28 @@ export function ExportButton({ onClick }: { onClick: () => void }) {
 
 // ---------- quantity stepper ----------
 
-export function Stepper({ value, onChange, min = 0, max = 999, large = false, label }: { value: number; onChange: (n: number) => void; min?: number; max?: number; large?: boolean; label?: string }) {
+// Quantity box with - / + buttons. Typing accepts up to 4 digits and is never
+// silently changed: a value outside min..max turns the box red, and the form's
+// own checks keep Save disabled until it's fixed. The buttons stay in range.
+export function Stepper({ value, onChange, min = 0, max = 9999, large = false, label }: { value: number; onChange: (n: number) => void; min?: number; max?: number; large?: boolean; label?: string }) {
+  const outOfRange = value < min || value > max;
   return (
     <div className={cn("flex items-center gap-1", large && "gap-2")}>
-      <Button type="button" variant="outline" size={large ? "xl" : "icon"} className={cn(large && "size-14 px-0")} onClick={() => onChange(Math.max(min, value - 1))} disabled={value <= min} aria-label={`Decrease ${label ?? ""}`}>
+      <Button type="button" variant="outline" size={large ? "xl" : "icon"} className={cn(large && "size-14 px-0")} onClick={() => onChange(Math.min(max, Math.max(min, value - 1)))} disabled={value <= min} aria-label={`Decrease ${label ?? ""}`}>
         <Minus />
       </Button>
       <Input
         inputMode="numeric"
+        maxLength={4}
         aria-label={label}
+        aria-invalid={outOfRange || undefined}
+        title={outOfRange ? (value > max ? `More than allowed (max ${max})` : `At least ${min}`) : undefined}
         value={value}
-        onChange={(e) => {
-          const n = parseInt(e.target.value.replace(/\D/g, "") || "0", 10);
-          onChange(Math.min(max, Math.max(min, n)));
-        }}
-        className={cn("w-14 text-center tabular-nums", large && "h-14 w-16 text-xl font-semibold")}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => onChange(parseInt(e.target.value.replace(/\D/g, "").slice(0, 4) || "0", 10))}
+        className={cn("w-20 px-1 text-center tabular-nums", large && "h-14 w-24 text-xl font-semibold")}
       />
-      <Button type="button" variant="outline" size={large ? "xl" : "icon"} className={cn(large && "size-14 px-0")} onClick={() => onChange(Math.min(max, value + 1))} disabled={value >= max} aria-label={`Increase ${label ?? ""}`}>
+      <Button type="button" variant="outline" size={large ? "xl" : "icon"} className={cn(large && "size-14 px-0")} onClick={() => onChange(Math.max(min, Math.min(max, value + 1)))} disabled={value >= max} aria-label={`Increase ${label ?? ""}`}>
         <Plus />
       </Button>
     </div>

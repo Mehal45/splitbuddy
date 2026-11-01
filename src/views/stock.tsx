@@ -150,7 +150,7 @@ function ChangeStateDialog({ open, onOpenChange }: { open: boolean; onOpenChange
         <div className="grid gap-2"><Label htmlFor="note">Note</Label><Input id="note" maxLength={120} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Underweight on scale" /></div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={qty > avail || from === to} onClick={() => {
+          <Button disabled={qty < 1 || qty > avail || from === to} onClick={() => {
             const ok = act((d) => {
               changeState(d, { ts: new Date().toISOString(), size, from, to, qty, userId: actor, note: note.trim().slice(0, 120) || undefined });
               logAudit(d, actor, "stock_state_change", `${qty} × ${size} kg: ${STATE_LABEL[from]} → ${STATE_LABEL[to]}${note.trim() ? ` (${note.trim().slice(0, 120)})` : ""}`);
@@ -246,7 +246,7 @@ function OpeningStockButton() {
     <>
       <Button variant="outline" onClick={() => setOpen(true)}><PackagePlus /> Opening stock</Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Opening stock at the warehouse</DialogTitle>
             <DialogDescription>Count what is in the warehouse today and enter it once. Later stock comes in through plant receipts.</DialogDescription>

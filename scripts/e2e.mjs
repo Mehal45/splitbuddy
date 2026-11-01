@@ -74,8 +74,29 @@ await page.goto(base + "#/stock");
 await page.getByRole("button", { name: "Opening stock" }).click();
 dlg = page.getByRole("dialog");
 for (let i = 0; i < 3; i++) await dlg.getByRole("button", { name: "Increase 19 kg Full" }).click();
-await dlg.getByRole("button", { name: "Add 3 cylinders" }).click();
-await page.getByText("Opening stock added: 3 cylinders").waitFor();
+// 4-digit quantities are kept exactly as typed (no silent cap at 999)
+await dlg.getByRole("textbox", { name: "19 kg Empty", exact: true }).fill("1500");
+if ((await dlg.getByRole("textbox", { name: "19 kg Empty", exact: true }).inputValue()) !== "1500") throw new Error("4-digit quantity was changed");
+await dlg.getByRole("textbox", { name: "14.2 kg Empty", exact: true }).fill("123456");
+if ((await dlg.getByRole("textbox", { name: "14.2 kg Empty", exact: true }).inputValue()) !== "1234") throw new Error("quantity should stop at 4 digits");
+await dlg.getByRole("textbox", { name: "14.2 kg Empty", exact: true }).fill("0");
+await dlg.getByRole("button", { name: "Add 1503 cylinders" }).click();
+await page.getByText("Opening stock added: 1503 cylinders").waitFor();
+step("quantities take 4 digits as typed and are never silently capped");
+
+// Above what's in stock: the number stays, the box turns red, Save is blocked
+await page.goto(base + "#/purchases");
+await page.getByRole("button", { name: "Record receipt" }).click();
+dlg = page.getByRole("dialog");
+await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).fill("1600");
+if ((await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).inputValue()) !== "1600") throw new Error("over-limit value was changed");
+if ((await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).getAttribute("aria-invalid")) !== "true") throw new Error("over-limit value should be flagged");
+await dlg.getByRole("textbox", { name: "19 kg full", exact: true }).fill("10");
+if (!(await dlg.getByRole("button", { name: "Save receipt" }).isDisabled())) throw new Error("save must be blocked when above stock");
+await dlg.getByRole("textbox", { name: "19 kg empties", exact: true }).fill("1500");
+if (await dlg.getByRole("button", { name: "Save receipt" }).isDisabled()) throw new Error("save should work within stock");
+await page.keyboard.press("Escape");
+step("value above stock is flagged red and blocks Save instead of being changed");
 
 await page.goto(base + "#/customers");
 await page.getByRole("button", { name: "Add customer" }).click();
@@ -90,7 +111,8 @@ await page.getByText("Customer added").waitFor();
 let setup = await db();
 const sharma = setup.customers.find((c) => c.name === "Sharma Tiffins");
 const whFull19 = setup.movements.filter((m) => m.to === "WH" && m.size === "19" && m.state === "full").reduce((n, m) => n + m.qty, 0);
-if (!sharma || sharma.openingOutstanding !== 2500 || sharma.openingEmpties["19"] !== 2 || whFull19 !== 3) throw new Error("setup from empty did not save correctly");
+const whEmpty19 = setup.movements.filter((m) => m.to === "WH" && m.size === "19" && m.state === "empty").reduce((n, m) => n + m.qty, 0);
+if (!sharma || sharma.openingOutstanding !== 2500 || sharma.openingEmpties["19"] !== 2 || whFull19 !== 3 || whEmpty19 !== 1500) throw new Error("setup from empty did not save correctly");
 step("from empty: added truck + driver, staff, opening stock and a customer with opening dues");
 
 // The new driver signs in; real numbers are never listed on the login page

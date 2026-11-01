@@ -155,7 +155,7 @@ function NewPurchaseDialog({ open, onOpenChange }: { open: boolean; onOpenChange
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Record stock receipt</DialogTitle>
           <DialogDescription>Full cylinders come in from the plant; empties and defective cylinders go back on the same trip.</DialogDescription>
