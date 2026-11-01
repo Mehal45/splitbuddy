@@ -227,6 +227,13 @@ await page.getByText("Stock across locations").waitFor();
 const stored = await page.evaluate(() => [localStorage.getItem("anmol-gas-demo:session"), sessionStorage.getItem("anmol-gas-demo:session")]);
 if (stored[0] !== null || !stored[1]) throw new Error("unticked keep-signed-in should use session storage only");
 step("owner PIN login; unticked 'keep me signed in' keeps session for this tab only");
+await page.getByRole("dialog").getByText("2 new orders").waitFor();
+await page.getByRole("button", { name: "Later" }).click();
+await page.reload();
+await page.getByText("Stock across locations").waitFor();
+await page.waitForTimeout(300);
+if (await page.getByText("2 new orders").count()) throw new Error("order pop-up should not come back once seen");
+step("owner sees a pop-up for the 2 waiting customer orders; 'Later' keeps it away");
 await page.goto(base + "#/approvals");
 const card = page.locator("[data-slot=card]", { hasText: newD.no });
 await card.getByRole("button", { name: "Approve" }).click();
@@ -304,11 +311,12 @@ step(`owner booked expense ${ex.no} ₹2,500 diesel by UPI with bill photo`);
 await page.goto(base + "#/profit");
 const pdb = await db();
 const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-const coll = pdb.payments.filter((p) => p.date === todayKey).reduce((n, p) => n + p.amount, 0);
+const sumInv = (k) => Math.round(pdb.invoices.filter((i) => i.kind === k && i.date === todayKey).reduce((n, i) => n + i.total, 0));
+const coll = sumInv("sale"), bought = sumInv("purchase");
 const spent = pdb.expenses.filter((e) => e.date === todayKey).reduce((n, e) => n + e.amount, 0);
-const fmt = (n) => (n < 0 ? "− " : "") + "₹" + Math.abs(n).toLocaleString("en-IN");
-await page.getByText(fmt(coll - spent)).first().waitFor();
-step(`daily profit today = collected ${fmt(coll)} − expenses ${fmt(spent)} = ${fmt(coll - spent)}`);
+const fmt = (n) => (n < 0 ? "−\u00a0" : "") + "₹" + Math.abs(n).toLocaleString("en-IN");
+await page.getByText(fmt(coll - bought - spent)).first().waitFor();
+step(`daily profit today = sales ${fmt(coll)} − purchases ${fmt(bought)} − expenses ${fmt(spent)} = ${fmt(coll - bought - spent)}`);
 const [pdl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
 const csvText = fs.readFileSync(await pdl.path(), "utf8");
 if (!csvText.includes("Net profit / loss")) throw new Error("profit CSV missing header");
@@ -384,6 +392,8 @@ if (forged) throw new Error("u-wh2 should not be a manager");
 step("non-manager staff: no expenses menu, page blocked");
 
 await loginAs("u-wh1");
+await page.getByRole("dialog").getByText(/new order/).waitFor();
+await page.getByRole("button", { name: "Later" }).click();
 await page.goto(base + "#/expenses");
 await page.getByRole("button", { name: "Book expense" }).first().click();
 const mDlg = page.getByRole("dialog");
@@ -399,9 +409,67 @@ if (mEx.by !== "u-wh1" || mEx.amount !== 350) throw new Error("manager expense n
 await page.getByRole("row", { name: /Broom/ }).first().click();
 if (await page.getByRole("button", { name: "Delete expense" }).count()) throw new Error("manager must not delete expenses");
 await page.keyboard.press("Escape");
+if (await page.getByText(/profit|net loss/i).count()) throw new Error("manager must not see any profit/loss figures");
 await page.goto(base + "#/profit");
 await page.getByText("This page isn't available for your role.").waitFor();
-step(`warehouse manager booked ${mEx.no}; can't delete or open the profit report`);
+await page.goto(base + "#/");
+await page.getByText(/Warehouse manager overview/).waitFor();
+if (await page.getByText(/profit|net loss/i).count()) throw new Error("manager home must not show profit/loss");
+step(`warehouse manager booked ${mEx.no}; can't delete, and sees no profit/loss anywhere`);
+for (const u of ["u-wh2", "u-dr1", "u-c1"]) {
+  await loginAs(u);
+  await page.goto(base + "#/profit");
+  await page.getByText("This page isn't available for your role.").waitFor();
+  if (await page.getByText(/net profit|net loss/i).count()) throw new Error(`${u} saw profit/loss`);
+}
+step("profit/loss blocked for warehouse staff, drivers and customers");
+
+// Customer orders in the app → pop-up for warehouse staff in another tab
+await loginAs("u-wh2");
+await page.getByRole("dialog").getByText(/new order/).waitFor();
+await page.getByRole("button", { name: "Later" }).click();
+const custPage = await ctx.newPage();
+custPage.on("pageerror", (e) => errors.push(e.message));
+await page.evaluate(() => localStorage.setItem("anmol-gas-demo:session", JSON.stringify({ userId: "u-c1", remember: true, expiresAt: Date.now() + 36e5 })));
+await custPage.goto(base + "#/me/order");
+await custPage.getByRole("heading", { name: "Order cylinders" }).waitFor();
+if (await custPage.getByRole("button", { name: "Place order" }).isEnabled()) throw new Error("empty order must be blocked");
+await custPage.getByRole("button", { name: /^Increase/ }).first().click();
+await custPage.getByRole("button", { name: /^Increase/ }).first().click();
+await custPage.getByRole("button", { name: "Tomorrow" }).click();
+await custPage.getByRole("radio", { name: /Evening/ }).click();
+await custPage.getByLabel(/Note for the agency/).fill("Ring the bell twice");
+await custPage.getByRole("button", { name: "Place order" }).click();
+await custPage.getByText("Order placed. The agency has been notified.").waitFor();
+const placed = (await db()).orders.at(-1);
+if (placed.customerId !== "c1" || placed.status !== "new" || Object.values(placed.lines)[0] !== 2 || placed.slot !== "evening") throw new Error("order not saved right");
+step(`customer placed ${placed.no} (2 cylinders, tomorrow evening) from the app`);
+
+// staff tab (already open) pops up at once, without a refresh
+await page.getByRole("dialog").getByText("New order").waitFor({ timeout: 5000 });
+await page.getByRole("dialog").getByText("Ring the bell twice").waitFor();
+await page.getByRole("button", { name: "Open orders" }).click();
+const oc = page.locator("[data-slot=card]", { hasText: placed.no });
+await oc.getByRole("button", { name: "Accept" }).click();
+await page.getByText(/Order accepted/).waitFor();
+if ((await db()).orders.find((o) => o.id === placed.id).status !== "accepted") throw new Error("accept failed");
+await custPage.getByText("Accepted · on the way").first().waitFor({ timeout: 5000 });
+step("warehouse staff got the pop-up live, accepted it; customer sees 'Accepted · on the way'");
+
+// customer can cancel only orders still waiting; limit of open orders
+await custPage.goto(base + "#/me/order");
+await custPage.getByRole("button", { name: /^Increase/ }).first().click();
+await custPage.getByRole("button", { name: "Place order" }).click();
+await custPage.getByText("Order placed. The agency has been notified.").waitFor();
+const second = (await db()).orders.at(-1);
+await custPage.locator("[data-slot=card]", { hasText: second.no }).getByRole("button", { name: "Cancel order" }).click();
+await custPage.getByRole("dialog").getByRole("button", { name: "Cancel order" }).click();
+await custPage.getByText("Order cancelled").first().waitFor();
+if ((await db()).orders.find((o) => o.id === second.id).status !== "cancelled") throw new Error("cancel failed");
+if (await custPage.locator("[data-slot=card]", { hasText: placed.no }).getByRole("button", { name: "Cancel order" }).count()) throw new Error("accepted order must not be cancellable by customer");
+await page.getByRole("button", { name: "Later" }).click().catch(() => {});
+step("customer cancelled a waiting order; accepted orders can't be cancelled from the app");
+await custPage.close();
 
 // Driver can't open staff pages
 await loginAs("u-dr1");

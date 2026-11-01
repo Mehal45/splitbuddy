@@ -104,13 +104,18 @@ function looksValid(d: unknown): d is DB {
     && typeof x.counters === "object" && x.users.some((u) => u.role === "owner");
 }
 
+// Bring data saved by an older version of the app up to date without losing anything.
+function upgrade(d: DB): DB {
+  if (!Array.isArray(d.expenses)) d.expenses = [];
+  if (!Array.isArray(d.orders)) d.orders = [];
+  // Old default was 4 hours; the default is now 10 (the owner can still change it in Settings)
+  if (!d.settings.approvalDefaultV2) { if (d.settings.pendingApprovalHours === 4) d.settings.pendingApprovalHours = 10; d.settings.approvalDefaultV2 = true; }
+  return d;
+}
+
 function loadDB(): { db: DB; recovered: boolean } {
   const saved = readJSON<unknown>(DB_KEY);
-  if (looksValid(saved)) {
-    // Data saved before expenses existed: add the empty list instead of wiping anything
-    if (!Array.isArray(saved.expenses)) saved.expenses = [];
-    return { db: saved, recovered: false };
-  }
+  if (looksValid(saved)) return { db: upgrade(saved), recovered: false };
   const fresh = buildEmpty();
   writeJSON(DB_KEY, fresh);
   return { db: fresh, recovered: saved !== null && (saved as DB)?.version === DB_VERSION };
@@ -130,7 +135,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setSession(sess && loaded.users.some((u) => u.id === sess.userId) ? sess : null);
     if (recovered) toast.warning("Saved demo data was damaged, so a fresh copy was loaded.");
     const t = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(t);
+    // Another tab or window changed the data (e.g. a customer placed an order): show it here at once
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== DB_KEY || !e.newValue) return;
+      try {
+        const next = JSON.parse(e.newValue) as unknown;
+        if (!looksValid(next)) return;
+        currentDb = upgrade(next);
+        setDb(currentDb);
+        setNow(Date.now());
+      } catch { /* ignore a half-written value */ }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => { clearInterval(t); window.removeEventListener("storage", onStorage); };
   }, []);
 
   const act = React.useCallback((fn: (draft: DB) => void, success?: string) => {

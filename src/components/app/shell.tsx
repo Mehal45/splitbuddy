@@ -3,7 +3,7 @@
 import * as React from "react";
 import {
   Bell, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
-  Receipt, RefreshCw, Scale, Settings, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
+  Receipt, RefreshCw, Scale, Settings, ShoppingCart, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,13 +19,15 @@ import { setUiStyle, useUiStyle } from "@/lib/ui-style";
 import { useStore } from "@/lib/store";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { NewOrderPopup } from "@/views/orders";
 
-export interface NavItem { href: string; label: string; icon: React.ElementType; badge?: "pending" | "alerts"; managerOnly?: boolean }
+export interface NavItem { href: string; label: string; icon: React.ElementType; badge?: "pending" | "alerts" | "orders"; managerOnly?: boolean }
 
 export const NAV: Record<Role, NavItem[]> = {
   owner: [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/alerts", label: "Alerts", icon: Bell, badge: "alerts" },
+    { href: "/orders", label: "Customer orders", icon: ShoppingCart, badge: "orders" },
     { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
     { href: "/loads", label: "Load sheets", icon: Truck },
     { href: "/reconciliation", label: "End of day", icon: Scale },
@@ -44,6 +46,7 @@ export const NAV: Record<Role, NavItem[]> = {
   ],
   warehouse: [
     { href: "/", label: "Today", icon: LayoutDashboard },
+    { href: "/orders", label: "Customer orders", icon: ShoppingCart, badge: "orders" },
     { href: "/loads", label: "Load sheets", icon: Truck },
     { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
     { href: "/purchases", label: "Stock receipts", icon: PackagePlus },
@@ -59,7 +62,9 @@ export const NAV: Record<Role, NavItem[]> = {
     { href: "/driver/history", label: "My deliveries", icon: ListChecks },
   ],
   customer: [
-    { href: "/", label: "Overview", icon: Home },
+    { href: "/", label: "Home", icon: Home },
+    { href: "/me/order", label: "Order", icon: ShoppingCart },
+    { href: "/me/orders", label: "My orders", icon: ListChecks },
     { href: "/me/deliveries", label: "Deliveries", icon: Truck },
     { href: "/me/invoices", label: "Invoices", icon: Receipt },
     { href: "/me/payments", label: "Payments", icon: Wallet },
@@ -85,7 +90,7 @@ export function Logo({ className }: { className?: string }) {
 
 function useBadgeCounts() {
   const { db, alerts } = useStore();
-  return { pending: db.deliveries.filter((d) => d.status === "pending").length, alerts: alerts.length };
+  return { pending: db.deliveries.filter((d) => d.status === "pending").length, alerts: alerts.length, orders: (db.orders ?? []).filter((o) => o.status === "new").length };
 }
 
 function NavLinks({ items, path, onNavigate }: { items: NavItem[]; path: string; onNavigate?: () => void }) {
@@ -118,15 +123,15 @@ function applyTheme(t: ThemePref) {
 }
 
 export function ThemeToggle() {
-  const [pref, setPref] = React.useState<ThemePref>("system");
+  const [pref, setPref] = React.useState<ThemePref>("light");
   const uiStyle = useUiStyle();
   React.useEffect(() => {
-    let saved: ThemePref = "system";
-    try { saved = (localStorage.getItem("anmol-theme") as ThemePref) || "system"; } catch { /* ignore */ }
+    let saved: ThemePref = "light";
+    try { saved = (localStorage.getItem("anmol-theme") as ThemePref) || "light"; } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- read saved preference once
     setPref(saved);
     const mq = matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => { if ((localStorage.getItem("anmol-theme") || "system") === "system") applyTheme("system"); };
+    const onChange = () => { if (localStorage.getItem("anmol-theme") === "system") applyTheme("system"); };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
@@ -324,11 +329,54 @@ export function AppShell({ path, children }: { path: string; children: React.Rea
               <UserMenu />
             </div>
           </header>
-          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
+          <main className={cn("mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6", PHONE_TABS[role!] && "pb-28 lg:pb-6")}>{children}</main>
         </div>
       </div>
+      {PHONE_TABS[role!] && <PhoneTabBar role={role!} path={path} onMore={() => setMenuOpen(true)} />}
+      {(role === "warehouse" || role === "owner") && <NewOrderPopup />}
       <ViewAsDialog open={viewOpen} onOpenChange={setViewOpen} />
     </div>
+  );
+}
+
+// Phone layout for warehouse staff: the main jobs one thumb-tap away
+// Phone layout for warehouse staff and customers: the main jobs one thumb-tap away
+const PHONE_TABS: Partial<Record<Role, NavItem[]>> = {
+  warehouse: [
+    { href: "/", label: "Today", icon: LayoutDashboard },
+    { href: "/orders", label: "Orders", icon: ShoppingCart, badge: "orders" },
+    { href: "/loads", label: "Loads", icon: Truck },
+    { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
+  ],
+  customer: [
+    { href: "/", label: "Home", icon: Home },
+    { href: "/me/order", label: "Order", icon: ShoppingCart },
+    { href: "/me/orders", label: "My orders", icon: ListChecks },
+    { href: "/me/invoices", label: "Bills", icon: Receipt },
+  ],
+};
+
+function PhoneTabBar({ role, path, onMore }: { role: Role; path: string; onMore: () => void }) {
+  const counts = useBadgeCounts();
+  const tabs = PHONE_TABS[role] ?? [];
+  const inTabs = tabs.some((t) => isActive(t.href, path));
+  return (
+    <nav aria-label="Main" className="no-print fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
+      {tabs.map((it) => {
+        const count = it.badge ? counts[it.badge] : 0;
+        return (
+          <Link key={it.href} href={it.href} className={cn("relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium", isActive(it.href, path) ? "text-primary" : "text-muted-foreground")}>
+            <it.icon className={cn("size-6", it.href === "/me/order" && "size-8 rounded-full bg-primary p-1.5 text-primary-foreground")} />
+            {it.label}
+            {count > 0 && <span className="absolute top-1.5 left-1/2 ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-semibold text-warning-foreground">{count}</span>}
+          </Link>
+        );
+      })}
+      <button type="button" onClick={onMore} className={cn("flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium", !inTabs ? "text-primary" : "text-muted-foreground")}>
+        <Menu className="size-6" />
+        More
+      </button>
+    </nav>
   );
 }
 

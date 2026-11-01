@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { EmptyState, PageHeader, Stepper } from "@/components/app/common";
+import { EmptyState, PageHeader, PhoneRow, qtySummary, Stepper } from "@/components/app/common";
 import { createLoadSheet, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { useActorId, useSizes } from "@/lib/hooks";
@@ -62,7 +62,21 @@ export function LoadSheetsView() {
         </CardHeader>
         <CardContent>
           {sheets.length === 0 ? <EmptyState title="No load sheets for this day" /> : (
-            <Table>
+            <>
+            <div className="grid gap-2 sm:hidden">
+              {sheets.map((ls) => (
+                <PhoneRow key={ls.id} title={L.truck.get(ls.truckId)?.regNo ?? "Truck"} sub={`${ls.no} · ${fmtTime(ls.ts)} · ${L.driver.get(ls.driverId)?.name ?? ""}`}
+                  right={`${Object.values(ls.lines).reduce((a, b) => a + b, 0)} cyl.`} rightSub={qtySummary(ls.lines, sizes)}>
+                  {isToday && (
+                    <span className="text-xs text-muted-foreground">Now on truck: {sizes.map((s) => {
+                      const f = locQty(stock, truckLoc(ls.truckId), s.id, "full"), e = locQty(stock, truckLoc(ls.truckId), s.id, "empty");
+                      return f || e ? `${s.label} ${f} full / ${e} empty` : null;
+                    }).filter(Boolean).join(" · ") || "empty"}</span>
+                  )}
+                </PhoneRow>
+              ))}
+            </div>
+            <Table className="hidden sm:table">
               <TableHeader>
                 <TableRow>
                   <TableHead>Load sheet</TableHead>
@@ -95,6 +109,7 @@ export function LoadSheetsView() {
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>

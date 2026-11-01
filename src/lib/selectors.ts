@@ -1,6 +1,6 @@
 // Derived numbers: balances, alerts and dashboard figures. Nothing here writes.
 
-import { computeStock, custLoc, locQty, truckLoc, WH, type StockMap } from "./engine";
+import { computeStock, custLoc, deliveryBill, locQty, truckLoc, WH, type StockMap } from "./engine";
 import { custName, dayKey, distanceKm, hoursSince, monthKey } from "./format";
 import type { Customer, CylState, DB, Delivery } from "./types";
 
@@ -188,16 +188,16 @@ export function stockFlowByDay(db: DB, days: number, now = Date.now()) {
   return [...map.values()];
 }
 
-// ---------- daily net profit: money collected minus expenses ----------
+// ---------- daily net profit: sales − purchases − expenses ----------
 
 export interface DayProfit {
   date: string;
-  cash: number; upi: number; other: number; // collected (cheque / NEFT go in "other")
-  collected: number;
+  sales: number; salesCount: number; // sales invoices dated that day (GST inclusive)
+  purchases: number; purchaseCount: number; // plant purchase invoices dated that day (GST inclusive)
   expenses: number;
   byCategory: Record<string, number>;
   net: number;
-  pendingCollected: number; // collected on deliveries still waiting for approval
+  pendingSales: number; // bill value of deliveries still waiting for approval (not invoiced yet)
 }
 
 /** Every day from..to (inclusive, YYYY-MM-DD), newest first. */
@@ -206,16 +206,16 @@ export function dailyProfit(db: DB, from: string, to: string): DayProfit[] {
   if (from > to) return [];
   for (let t = Date.parse(`${to}T00:00:00Z`), stop = Date.parse(`${from}T00:00:00Z`), n = 0; t >= stop && n < 400; t -= 864e5, n++) {
     const date = new Date(t).toISOString().slice(0, 10);
-    rows.set(date, { date, cash: 0, upi: 0, other: 0, collected: 0, expenses: 0, byCategory: {}, net: 0, pendingCollected: 0 });
+    rows.set(date, { date, sales: 0, salesCount: 0, purchases: 0, purchaseCount: 0, expenses: 0, byCategory: {}, net: 0, pendingSales: 0 });
   }
-  for (const p of db.payments) {
-    const r = rows.get(p.date);
+  for (const inv of db.invoices) {
+    const r = rows.get(inv.date);
     if (!r) continue;
-    if (p.mode === "cash") r.cash += p.amount; else if (p.mode === "upi") r.upi += p.amount; else r.other += p.amount;
+    if (inv.kind === "sale") { r.sales += inv.total; r.salesCount++; } else { r.purchases += inv.total; r.purchaseCount++; }
   }
   for (const d of db.deliveries) {
-    const r = d.status === "pending" && d.payment ? rows.get(d.date) : undefined;
-    if (r) r.pendingCollected += d.payment!.amount;
+    const r = d.status === "pending" ? rows.get(d.date) : undefined;
+    if (r) r.pendingSales += deliveryBill(db, d);
   }
   for (const e of db.expenses ?? []) {
     const r = rows.get(e.date);
@@ -223,6 +223,9 @@ export function dailyProfit(db: DB, from: string, to: string): DayProfit[] {
     r.expenses += e.amount;
     r.byCategory[e.category] = (r.byCategory[e.category] ?? 0) + e.amount;
   }
-  for (const r of rows.values()) { r.collected = r.cash + r.upi + r.other; r.net = r.collected - r.expenses; }
+  for (const r of rows.values()) {
+    r.sales = Math.round(r.sales); r.purchases = Math.round(r.purchases); r.pendingSales = Math.round(r.pendingSales);
+    r.net = r.sales - r.purchases - r.expenses;
+  }
   return [...rows.values()];
 }

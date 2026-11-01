@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { CustomerOrdersCard } from "./orders";
 import { ArrowLeft, Pencil, Phone, Plus, Search, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, payLabel, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
+import { AckPhoto, downloadCSV, EmptyState, ExportButton, PageHeader, payLabel, PhoneRow, StatCard, StatusBadge, qtySummary } from "@/components/app/common";
 import { logAudit, nextId, recordPayment, setCustomerOpening } from "@/lib/engine";
 import { AREAS } from "@/lib/seed";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
@@ -57,7 +58,18 @@ export function CustomersView() {
           <Select value={area} onValueChange={setArea}><SelectTrigger className="w-40"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All areas</SelectItem>{areas.map((a) => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent></Select>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="grid gap-2 sm:hidden">
+            {list.slice(0, 200).map((c) => {
+              const b = balances[c.id];
+              const over = c.creditLimit > 0 && b.outstanding > c.creditLimit;
+              return (
+                <PhoneRow key={c.id} onClick={() => navigate(`/customers/${c.id}`)} title={custName(c)} sub={`${c.area} · ${c.type === "domestic" ? "Domestic" : "Commercial"}`}
+                  right={<span className={cn(over && "text-destructive")}>{rupees(b.outstanding)}</span>}
+                  rightSub={b.excessEmpties > 0 ? <span className={cn(b.excessEmpties > db.settings.emptiesTolerance && "text-destructive")}>{b.excessEmpties} empties owed</span> : over ? "over limit" : "dues"} />
+              );
+            })}
+          </div>
+          <Table className="hidden sm:table">
             <TableHeader>
               <TableRow>
                 <TableHead>Customer</TableHead>
@@ -203,6 +215,7 @@ export function CustomerDetail({ id, portal = false, tab }: { id: string; portal
       <>
         <PageHeader title={`Welcome, ${c.name}`} description={`${custName(c)} · Customer code ${c.code}`} />
         <div className="space-y-6">
+          <CustomerOrdersCard customerId={c.id} />
           {balanceCards}
           {over && <p className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">Your outstanding is above your credit limit. Please arrange a payment to avoid delivery holds.</p>}
           <div className="grid gap-6 xl:grid-cols-2">

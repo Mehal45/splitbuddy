@@ -28,7 +28,7 @@ await build({
 });
 
 // Same as the inline script in src/app/layout.tsx
-const theme = `(function(){var r=document.documentElement;r.setAttribute('data-style','studio');try{var s=localStorage.getItem('anmol-style');if(s==='classic')r.setAttribute('data-style','classic');var t=localStorage.getItem('anmol-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);r.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
+const theme = `(function(){var r=document.documentElement;r.setAttribute('data-style','studio');try{var s=localStorage.getItem('anmol-style');if(s==='classic')r.setAttribute('data-style','classic');var t=localStorage.getItem('anmol-theme')||'light';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);r.setAttribute('data-theme',d?'dark':'light');}catch(e){}})();`;
 const font = `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@300;400;500;600;700&display=swap">`;
 fs.writeFileSync(path.join(dst, "index.html"), `<!doctype html>
 <html lang="en-IN">

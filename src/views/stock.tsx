@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DateRange, downloadCSV, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
+import { DateRange, downloadCSV, ExportButton, PageHeader, PhoneRow, Stepper, useDateRange } from "@/components/app/common";
 import { addOpeningStock, changeState, locQty, logAudit, truckLoc, WH } from "@/lib/engine";
 import { custName, dayKey, fmtDate, fmtTime } from "@/lib/format";
 import { locLabel, useActorId, useSizes } from "@/lib/hooks";
@@ -202,7 +202,14 @@ export function MovementsView() {
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="grid gap-2 sm:hidden">
+            {rows.slice(0, Math.min(limit, 150)).map((m) => (
+              <PhoneRow key={m.id} title={`${locLabel(db, m.from)} → ${locLabel(db, m.to)}`} sub={`${fmtDate(m.ts)} ${fmtTime(m.ts)} · ${REF_LABEL[m.refType]} · ${L.user.get(m.userId)?.name ?? m.userId}`}
+                right={m.qty} rightSub={`${L.size.get(m.size)?.label ?? m.size} ${STATE_LABEL[m.state].toLowerCase()}${m.toState && m.toState !== m.state ? ` → ${STATE_LABEL[m.toState].toLowerCase()}` : ""}`} />
+            ))}
+            <p className="px-1 pt-1 text-sm text-muted-foreground">{rows.length} movements{rows.length > 150 && " · first 150 shown, export CSV for all"}</p>
+          </div>
+          <Table className="hidden sm:table">
             <TableHeader><TableRow><TableHead>Date & time</TableHead><TableHead>User</TableHead><TableHead>From</TableHead><TableHead>To</TableHead><TableHead>Size</TableHead><TableHead>State</TableHead><TableHead className="text-right">Qty</TableHead><TableHead>Type</TableHead></TableRow></TableHeader>
             <TableBody>
               {rows.slice(0, limit).map((m) => (

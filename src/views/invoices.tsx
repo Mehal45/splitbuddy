@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, Stepper, useDateRange } from "@/components/app/common";
+import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, PhoneRow, Stepper, useDateRange } from "@/components/app/common";
 import { attachToInvoice, createPurchase, locQty, logAudit, WH } from "@/lib/engine";
 import { InvoiceReceipts, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
 import { custName, dayKey, fmtDate, fmtDateTime, rupees } from "@/lib/format";
@@ -30,7 +30,17 @@ function InvoiceTable({ invoices, kind }: { invoices: Invoice[]; kind: "sale" | 
   const sum = (k: "taxable" | "cgst" | "sgst" | "igst" | "total") => invoices.reduce((s, i) => s + i[k], 0);
   if (!invoices.length) return <EmptyState title="No invoices in this period" />;
   return (
-    <Table>
+    <>
+    <div className="grid gap-2 sm:hidden">
+      {invoices.slice(0, 150).map((i) => (
+        <PhoneRow key={i.id} onClick={() => navigate(`/invoices/${i.id}`)}
+          title={<>{i.no}{(i.attachments?.length ?? 0) > 0 && <Paperclip className="ml-1 inline size-3.5 text-muted-foreground" aria-label="Receipt attached" />}</>}
+          sub={`${fmtDate(i.date)} · ${i.partyName}`} right={rupees(i.total)}
+          rightSub={i.lines.filter((l) => l.qty).map((l) => `${l.qty}×${sizes.find((s) => s.id === l.size)?.label ?? l.size}`).join(", ")} />
+      ))}
+      <p className="px-1 pt-1 text-sm text-muted-foreground">{invoices.length} invoices · {rupees(sum("total"))}</p>
+    </div>
+    <Table className="hidden sm:table">
       <TableHeader>
         <TableRow>
           <TableHead>Invoice</TableHead>
@@ -73,6 +83,7 @@ function InvoiceTable({ invoices, kind }: { invoices: Invoice[]; kind: "sale" | 
         </TableRow>
       </TableFooter>
     </Table>
+    </>
   );
 }
 

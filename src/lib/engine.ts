@@ -5,7 +5,7 @@ import { computeTotals } from "./gst";
 import { dayKey } from "./format";
 import { EXPENSE_CATEGORIES } from "./types";
 import type {
-  Attachment, AuditAction, CylState, Customer, DB, Delivery, Expense, ExpenseCategory, GeoPoint, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
+  Attachment, AuditAction, CylState, Customer, DB, Delivery, Expense, ExpenseCategory, GeoPoint, Order, OrderSlot, Invoice, InvoiceLine, LocationKey, Movement, SizeQty,
 } from "./types";
 
 export const WH = "WH";
@@ -189,6 +189,8 @@ export function approveDelivery(db: DB, id: string, userId: string, ts: string) 
   d.reviewedAt = ts;
   const inv = createSaleInvoice(db, { customerId: d.customerId, date: d.date, ts: d.ts, full: d.full, empty: d.empty, source: "app", deliveryId: d.id });
   d.invoiceId = inv.id;
+  const ord = (db.orders ?? []).filter((o) => o.customerId === d.customerId && o.status === "accepted").sort((a, b) => a.ts.localeCompare(b.ts))[0];
+  if (ord) Object.assign(ord, { status: "delivered", deliveryId: d.id, handledBy: userId, handledAt: ts });
   // One payment record per mode, so cash and UPI reconcile separately
   const parts = payParts(d.payment);
   for (const mode of ["cash", "upi"] as const) {
@@ -479,4 +481,86 @@ export function payStatus(paid: number, bill: number): "paid" | "part" | "unpaid
   if (paid < bill) return "part";
   if (paid === bill) return "paid";
   return "extra";
+}
+
+// ---------- customer orders ----------
+
+export const MAX_OPEN_ORDERS = 3; // per customer, waiting or accepted
+export const MAX_ORDER_QTY = 500; // per size
+export const ORDER_DAYS_AHEAD = 14;
+
+const userOf = (db: DB, id: string) => db.users.find((u) => u.id === id);
+const isStaff = (db: DB, id: string) => { const r = userOf(db, id)?.role; return r === "owner" || r === "warehouse"; };
+const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+
+/** Sizes a customer can order: active and priced for their type. */
+export function orderableSizes(db: DB, c: Customer) {
+  return db.settings.sizes.filter((s) => s.active && priceFor(db, s.id, c.type) != null);
+}
+
+export function placeOrder(db: DB, a: { customerId: string; lines: Record<string, number>; wantedDate: string; slot: OrderSlot; note: string; userId: string; ts: string; today: string }) {
+  const u = userOf(db, a.userId);
+  if (!u || !(u.role === "owner" || (u.role === "customer" && u.customerId === a.customerId))) fail("You can only place orders for your own account.");
+  const c = db.customers.find((x) => x.id === a.customerId);
+  if (!c) fail("Customer not found.");
+  const allowed = new Set(orderableSizes(db, c!).map((s) => s.id));
+  const lines: Record<string, number> = {};
+  for (const [size, qty] of Object.entries(a.lines)) {
+    if (!qty) continue;
+    if (!allowed.has(size)) fail("That cylinder size isn't available for your account.");
+    if (!Number.isInteger(qty) || qty < 1 || qty > MAX_ORDER_QTY) fail(`Order 1 to ${MAX_ORDER_QTY} cylinders per size.`);
+    lines[size] = qty;
+  }
+  if (!Object.keys(lines).length) fail("Add at least one cylinder.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a.wantedDate) || a.wantedDate < a.today || a.wantedDate > addDays(a.today, ORDER_DAYS_AHEAD)) fail(`Pick a delivery date from today to ${ORDER_DAYS_AHEAD} days ahead.`);
+  if (!["morning", "afternoon", "evening"].includes(a.slot)) fail("Pick a delivery time.");
+  if (a.note.trim().length > 200) fail("Note can be at most 200 characters.");
+  const open = (db.orders ?? []).filter((o) => o.customerId === a.customerId && (o.status === "new" || o.status === "accepted")).length;
+  if (open >= MAX_OPEN_ORDERS) fail(`You already have ${open} orders on the way. Please wait for them or call the agency.`);
+  const o: Order = {
+    id: nextId(db, "or"), no: nextNo(db, "OR", a.today), ts: a.ts, customerId: a.customerId, lines, wantedDate: a.wantedDate, slot: a.slot,
+    note: a.note.trim(), status: "new", placedBy: a.userId,
+  };
+  (db.orders ??= []).push(o);
+  return o;
+}
+
+function openOrder(db: DB, id: string) {
+  const o = (db.orders ?? []).find((x) => x.id === id);
+  if (!o) fail("Order not found.");
+  return o!;
+}
+
+export function acceptOrder(db: DB, id: string, userId: string, ts: string) {
+  if (!isStaff(db, userId)) fail("Only warehouse staff and the owner can accept orders.");
+  const o = openOrder(db, id);
+  if (o.status !== "new") fail("This order was already handled.");
+  Object.assign(o, { status: "accepted", handledBy: userId, handledAt: ts });
+  return o;
+}
+
+export function rejectOrder(db: DB, id: string, userId: string, reason: string, ts: string) {
+  if (!isStaff(db, userId)) fail("Only warehouse staff and the owner can reject orders.");
+  const o = openOrder(db, id);
+  if (o.status !== "new" && o.status !== "accepted") fail("This order is already closed.");
+  if (!reason.trim()) fail("Give the customer a reason.");
+  Object.assign(o, { status: "rejected", handledBy: userId, handledAt: ts, reason: reason.trim().slice(0, 200) });
+  return o;
+}
+
+export function cancelOrder(db: DB, id: string, userId: string, ts: string) {
+  const o = openOrder(db, id);
+  const u = userOf(db, userId);
+  if (!u || !(u.role === "owner" || (u.role === "customer" && u.customerId === o.customerId))) fail("You can only cancel your own orders.");
+  if (o.status !== "new") fail("This order was already accepted. Please call the agency to change it.");
+  Object.assign(o, { status: "cancelled", handledBy: userId, handledAt: ts, reason: "Cancelled by customer" });
+  return o;
+}
+
+export function markOrderDelivered(db: DB, id: string, userId: string, ts: string) {
+  if (!isStaff(db, userId)) fail("Only warehouse staff and the owner can close orders.");
+  const o = openOrder(db, id);
+  if (o.status !== "accepted") fail("Only accepted orders can be marked delivered.");
+  Object.assign(o, { status: "delivered", handledBy: userId, handledAt: ts });
+  return o;
 }

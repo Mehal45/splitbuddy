@@ -77,7 +77,7 @@ export function OwnerDashboard() {
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Sales today" value={rupeesShort(sales.today)} icon={IndianRupee} onClick={() => navigate("/sales")} highlight />
         <StatCard label="Sales this month" value={rupeesShort(sales.month)} icon={TrendingUp} onClick={() => navigate("/reports")} />
-        <StatCard label={profit.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(profit.net)} hint={`Collected ${rupeesShort(profit.collected)} − expenses ${rupeesShort(profit.expenses)}`} icon={profit.net >= 0 ? TrendingUp : TrendingDown} tone={profit.net > 0 ? "success" : profit.net < 0 ? "danger" : "default"} onClick={() => navigate("/profit")} />
+        <StatCard label={profit.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(profit.net)} hint={`Sales − purchases − expenses`} icon={profit.net >= 0 ? TrendingUp : TrendingDown} tone={profit.net > 0 ? "success" : profit.net < 0 ? "danger" : "default"} onClick={() => navigate("/profit")} />
         <StatCard label="Outstanding credit" value={rupeesShort(outstanding)} hint={`${db.customers.filter((c) => c.creditLimit > 0 && balances[c.id].outstanding > c.creditLimit).length} over limit`} icon={CreditCard} tone={outstanding > 0 ? "danger" : "default"} onClick={() => navigate("/customers")} />
       </div>
 

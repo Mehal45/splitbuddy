@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ClipboardCheck, PackagePlus, Scale, Truck } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, PackagePlus, Scale, ShoppingCart, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader, SectionTitle, StatCard } from "@/components/app/common";
@@ -14,6 +14,7 @@ export function WarehouseHome() {
   const { db, alerts, user } = useStore();
   const today = dayKey();
   const pending = db.deliveries.filter((d) => d.status === "pending").length;
+  const newOrders = (db.orders ?? []).filter((o) => o.status === "new").length;
   const trucksOut = new Set(db.loadSheets.filter((l) => l.date === today).map((l) => l.truckId)).size;
   const returned = db.reconciliations.filter((r) => r.date === today).length;
   const mismatches = db.reconciliations.filter((r) => r.date === today && r.mismatch).length;
@@ -22,7 +23,8 @@ export function WarehouseHome() {
   return (
     <>
       <PageHeader title={`Good day, ${user?.name.split(" ")[0]}`} description={`${user?.manager ? "Warehouse manager" : "Warehouse"} overview for ${fmtDate(today)}`} />
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard label="New customer orders" value={newOrders} icon={ShoppingCart} tone={newOrders ? "warning" : "success"} onClick={() => navigate("/orders")} />
         <StatCard label="Pending approvals" value={pending} icon={ClipboardCheck} tone={pending ? "warning" : "success"} onClick={() => navigate("/approvals")} />
         <StatCard label="Trucks loaded today" value={trucksOut} icon={Truck} onClick={() => navigate("/loads")} highlight />
         <StatCard label="Trucks returned" value={`${returned} / ${trucksOut}`} icon={Scale} onClick={() => navigate("/reconciliation")} />

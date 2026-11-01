@@ -3,7 +3,7 @@
 // demo always ends today. It uses the same engine functions as the UI.
 
 import {
-  addExpense, approveDelivery, changeState, computeStock, createLoadSheet, createPurchase, createSaleInvoice, custLoc, locQty,
+  addExpense, approveDelivery, nextId, nextNo, changeState, computeStock, createLoadSheet, createPurchase, createSaleInvoice, custLoc, locQty,
   move, priceFor, reconcileTruck, recordPayment, rejectDelivery, submitDelivery, truckExpected, WH,
 } from "./engine";
 import { dayKey } from "./format";
@@ -26,7 +26,8 @@ export function buildEmpty(nowMs = Date.now()): DB {
       agencyAddress: "No. 42, KIADB Industrial Area, Peenya 2nd Stage, Bengaluru 560058",
       homeState: "Karnataka",
       sizes: DEFAULT_SIZES.map((s) => ({ ...s })),
-      pendingApprovalHours: 4,
+      pendingApprovalHours: 10,
+      approvalDefaultV2: true,
       emptiesTolerance: 2,
       gpsMaxDistanceKm: 0.5,
       hsnCode: "2711",
@@ -37,7 +38,7 @@ export function buildEmpty(nowMs = Date.now()): DB {
       { id: "pl1", name: "Bharat Gas LPG Bottling Plant, Doddaballapur", gstin: "29ABCDE1234F1Z5", state: "Karnataka" },
       { id: "pl2", name: "Bharat Gas LPG Bottling Plant, Hosur", gstin: "33ABCDE1234F1Z9", state: "Tamil Nadu" },
     ],
-    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [], expenses: [],
+    movements: [], loadSheets: [], deliveries: [], invoices: [], payments: [], reconciliations: [], syncLog: [], expenses: [], orders: [],
     lastSyncedAt: null, counters: {}, audit: [],
   };
 }
@@ -399,6 +400,43 @@ export function buildSeed(nowMs = Date.now()): DB {
     const due = bal[c.id].outstanding;
     if (flags[c.id] === "C") c.creditLimit = Math.max(5000, Math.floor((due * 0.75) / 5000) * 5000);
     else if (due > c.creditLimit * 0.9) c.creditLimit = Math.ceil((due * 1.4) / 10000) * 10000;
+  }
+
+  // Customer orders placed in the app: some already delivered, a few waiting today.
+  {
+    const orr = rng(5150);
+    const ori = (a: number, b: number) => a + Math.floor(orr() * (b - a + 1));
+    db.orders = [];
+    const recent = db.deliveries.filter((d) => d.status === "approved" && d.date >= dates[DAYS - 15] && d.date < today);
+    for (let i = 0; i < 14 && recent.length; i++) {
+      const d = recent.splice(ori(0, recent.length - 1), 1)[0];
+      const placed = new Date(Date.parse(d.ts) - ori(3, 16) * 36e5).toISOString();
+      const status = i === 3 ? "rejected" : i === 7 ? "cancelled" : "delivered";
+      db.orders.push({
+        id: nextId(db, "or"), no: nextNo(db, "OR", dayKey(placed)), ts: placed, customerId: d.customerId, lines: { ...d.full }, wantedDate: d.date,
+        slot: (["morning", "afternoon", "evening"] as const)[ori(0, 2)], note: "", status, placedBy: `u-${d.customerId}`,
+        handledBy: status === "cancelled" ? `u-${d.customerId}` : "u-wh1", handledAt: d.ts,
+        reason: status === "rejected" ? "Over credit limit, please clear dues" : status === "cancelled" ? "Cancelled by customer" : undefined,
+        deliveryId: status === "delivered" ? d.id : undefined,
+      });
+    }
+    const todayOrders: { c: string; lines: SizeQty; slot: "morning" | "afternoon" | "evening"; note: string; status: "new" | "accepted"; minsAgo: number }[] = [
+      { c: "c3", lines: { "19": 4 }, slot: "afternoon", note: "Kitchen side entrance please", status: "accepted", minsAgo: 150 },
+      { c: "c7", lines: { "19": 2, "47.5": 1 }, slot: "evening", note: "", status: "new", minsAgo: 40 },
+      { c: "c15", lines: { "14.2": 1 }, slot: "morning", note: "Call before coming", status: "new", minsAgo: 12 },
+    ];
+    for (const t of todayOrders) {
+      const cust = db.customers.find((x) => x.id === t.c);
+      if (!cust) continue;
+      const lines = Object.fromEntries(Object.entries(t.lines).filter(([size]) => priceFor(db, size, cust.type) != null));
+      if (!Object.keys(lines).length) lines[cust.type === "domestic" ? "14.2" : "19"] = 2;
+      const ts = new Date(nowMs - t.minsAgo * 60_000).toISOString();
+      db.orders.push({
+        id: nextId(db, "or"), no: nextNo(db, "OR", today), ts, customerId: cust.id, lines, wantedDate: t.slot === "morning" ? dates[DAYS - 1] : today,
+        slot: t.slot, note: t.note, status: t.status, placedBy: `u-${cust.id}`,
+        ...(t.status === "accepted" ? { handledBy: "u-wh1", handledAt: new Date(nowMs - (t.minsAgo - 20) * 60_000).toISOString() } : {}),
+      });
+    }
   }
 
   // Day-to-day expenses, booked by the owner or the warehouse manager.

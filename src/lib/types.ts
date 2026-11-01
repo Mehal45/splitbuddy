@@ -38,6 +38,7 @@ export interface Settings {
   gpsMaxDistanceKm: number;
   hsnCode: string;
   ownerPin?: string; // demo lock for the owner login page
+  approvalDefaultV2?: boolean; // saved data already moved to the 10-hour approval default
 }
 
 export interface User {
@@ -232,7 +233,8 @@ export type AuditAction =
   | "load_sheet" | "reconciliation" | "purchase" | "payment" | "stock_state_change"
   | "customer_added" | "customer_edited" | "settings_changed" | "tally_sync" | "demo_reset"
   | "team_changed" | "opening_stock" | "receipt_attached" | "receipt_removed"
-  | "expense_added" | "expense_deleted";
+  | "expense_added" | "expense_deleted"
+  | "order_placed" | "order_accepted" | "order_rejected" | "order_cancelled" | "order_delivered";
 
 export const EXPENSE_CATEGORIES = [
   "Diesel / fuel", "Salaries & wages", "Loading / hamali", "Truck repair & maintenance", "Rent",
@@ -254,6 +256,28 @@ export interface Expense {
   truckId?: string;
   attachments?: Attachment[];
   by: string; // user id
+}
+
+export type OrderStatus = "new" | "accepted" | "delivered" | "rejected" | "cancelled";
+export type OrderSlot = "morning" | "afternoon" | "evening";
+export const SLOT_LABEL: Record<OrderSlot, string> = { morning: "Morning (8–12)", afternoon: "Afternoon (12–4)", evening: "Evening (4–8)" };
+
+/** A refill order placed by a customer in the app; warehouse staff accept or reject it. */
+export interface Order {
+  id: string;
+  no: string; // OR/26-27/00001
+  ts: string; // when it was placed
+  customerId: string;
+  lines: SizeQty; // full cylinders wanted per size
+  wantedDate: string; // YYYY-MM-DD
+  slot: OrderSlot;
+  note: string;
+  status: OrderStatus;
+  placedBy: string;
+  handledBy?: string;
+  handledAt?: string;
+  reason?: string; // why it was rejected / cancelled
+  deliveryId?: string; // delivery that fulfilled it
 }
 
 export interface AuditEntry {
@@ -284,5 +308,6 @@ export interface DB {
   lastSyncedAt: string | null;
   counters: Record<string, number>;
   expenses?: Expense[]; // optional so data saved before expenses existed still loads
+  orders?: Order[];
   audit?: AuditEntry[]; // newest last, capped (see engine.logAudit)
 }

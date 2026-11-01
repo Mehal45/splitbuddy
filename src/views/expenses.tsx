@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, StatCard, useDateRange } from "@/components/app/common";
+import { DateRange, downloadCSV, EmptyState, ExportButton, PageHeader, PhoneRow, StatCard, useDateRange } from "@/components/app/common";
 import { openPdf, ReceiptPicker, type PendingReceipt } from "@/components/app/receipts";
 import { addExpense, canBookExpenses, deleteExpense, isSafeAttachment, logAudit } from "@/lib/engine";
 import { dayKey, fmtDate, fmtDateShort, fmtDateTime, rupees, rupeesShort } from "@/lib/format";
@@ -56,7 +56,7 @@ function ExpenseDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader><DialogTitle>Book an expense</DialogTitle><DialogDescription>It is taken off that day&apos;s collection in the daily profit report.</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>Book an expense</DialogTitle><DialogDescription>Record money spent on running the business.</DialogDescription></DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="grid gap-1.5">
             <Label htmlFor="ex-cat">Expense type</Label>
@@ -261,7 +261,15 @@ export function ExpensesView() {
         </CardHeader>
         <CardContent>
           {rows.length === 0 ? <EmptyState title="No expenses in this period" hint="Tap 'Book expense' to add one." /> : (
-            <Table>
+            <>
+            <div className="grid gap-2 sm:hidden">
+              {rows.slice(0, 200).map((e) => (
+                <PhoneRow key={e.id} onClick={() => setSelected(e)} title={<>{e.category}{!!e.attachments?.length && <Paperclip className="ml-1 inline size-3.5 text-muted-foreground" aria-label="Bill attached" />}</>}
+                  sub={`${fmtDateShort(e.date)} · ${MODE_LABEL[e.mode]}${e.paidTo ? ` · ${e.paidTo}` : ""}${e.truckId ? ` · ${L.truck.get(e.truckId)?.regNo ?? ""}` : ""}`} right={rupees(e.amount)} />
+              ))}
+              <p className="flex justify-between px-1 pt-1 text-sm font-medium"><span>Total</span><span className="tabular-nums">{rupees(total)}</span></p>
+            </div>
+            <Table className="hidden sm:table">
               <TableHeader><TableRow>
                 <TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead className="hidden md:table-cell">Paid to / note</TableHead>
                 <TableHead className="hidden sm:table-cell">Paid by</TableHead><TableHead className="hidden lg:table-cell">Booked by</TableHead><TableHead className="text-right">Amount</TableHead>
@@ -284,6 +292,7 @@ export function ExpensesView() {
               </TableBody>
               <TableFooter><TableRow><TableCell colSpan={2}>Total</TableCell><TableCell className="hidden md:table-cell" /><TableCell className="hidden sm:table-cell" /><TableCell className="hidden lg:table-cell" /><TableCell className="text-right tabular-nums">{rupees(total)}</TableCell></TableRow></TableFooter>
             </Table>
+            </>
           )}
         </CardContent>
       </Card>
@@ -299,7 +308,7 @@ const axisMoney = (v: number) => {
   return a >= 1e5 ? `${sign}₹${+(a / 1e5).toFixed(1)}L` : a >= 1000 ? `${sign}₹${Math.round(a / 1000)}k` : `${sign}₹${a}`;
 };
 const netClass = (n: number) => (n > 0 ? "text-success" : n < 0 ? "text-destructive" : "");
-export const netText = (n: number) => (n < 0 ? `− ${rupees(-n)}` : rupees(n));
+export const netText = (n: number) => (n < 0 ? `−\u00a0${rupees(-n)}` : rupees(n));
 
 function ProfitTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) {
   if (!active || !payload?.length) return null;
@@ -315,17 +324,22 @@ function DayBreakup({ day, onClose }: { day: DayProfit | null; onClose: () => vo
   const { db } = useStore();
   const L = useLookups();
   const list = day ? (db.expenses ?? []).filter((e) => e.date === day.date).sort((a, b) => b.amount - a.amount) : [];
+  const buys = day ? db.invoices.filter((i) => i.kind === "purchase" && i.date === day.date) : [];
   return (
     <Dialog open={!!day} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
         {day && (
           <>
-            <DialogHeader><DialogTitle>{fmtDate(day.date)}</DialogTitle><DialogDescription>Collected minus expenses for the day</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>{fmtDate(day.date)}</DialogTitle><DialogDescription>Sales − purchases − expenses for the day</DialogDescription></DialogHeader>
             <dl className="grid grid-cols-[1fr_auto] gap-y-1.5 text-sm">
-              <dt>Cash collected</dt><dd className="text-right tabular-nums">{rupees(day.cash)}</dd>
-              <dt>UPI collected</dt><dd className="text-right tabular-nums">{rupees(day.upi)}</dd>
-              {day.other > 0 && <><dt>Cheque / NEFT</dt><dd className="text-right tabular-nums">{rupees(day.other)}</dd></>}
-              <dt className="border-t pt-1.5 font-medium">Total collected</dt><dd className="border-t pt-1.5 text-right font-medium tabular-nums">{rupees(day.collected)}</dd>
+              <dt className="font-medium">Sales <span className="font-normal text-muted-foreground">({day.salesCount} invoices)</span></dt><dd className="text-right font-medium tabular-nums">{rupees(day.sales)}</dd>
+              {buys.map((i) => (
+                <React.Fragment key={i.id}>
+                  <dt className="text-muted-foreground">− Purchase {i.no} · {i.lines.reduce((n, l) => n + l.qty, 0)} cylinders</dt>
+                  <dd className="text-right tabular-nums text-muted-foreground">{rupees(i.total)}</dd>
+                </React.Fragment>
+              ))}
+              <dt className="font-medium">Total purchases</dt><dd className="text-right font-medium tabular-nums">{rupees(day.purchases)}</dd>
               {list.map((e) => (
                 <React.Fragment key={e.id}>
                   <dt className="text-muted-foreground">− {e.category}{e.truckId ? ` · ${L.truck.get(e.truckId)?.regNo ?? ""}` : ""}{e.paidTo ? ` · ${e.paidTo}` : ""}</dt>
@@ -336,7 +350,7 @@ function DayBreakup({ day, onClose }: { day: DayProfit | null; onClose: () => vo
               <dt className="border-t pt-2 text-base font-semibold">{day.net >= 0 ? "Net profit" : "Net loss"}</dt>
               <dd className={cn("border-t pt-2 text-right text-base font-semibold tabular-nums", netClass(day.net))}>{netText(day.net)}</dd>
             </dl>
-            {day.pendingCollected > 0 && <p className="text-xs text-muted-foreground">Another {rupees(day.pendingCollected)} was collected on deliveries still waiting for approval. It counts once they are approved.</p>}
+            {day.pendingSales > 0 && <p className="text-xs text-muted-foreground">Deliveries worth {rupees(day.pendingSales)} are still waiting for approval. They become sales once approved.</p>}
           </>
         )}
       </DialogContent>
@@ -351,28 +365,29 @@ export function ProfitView() {
   const today = dayKey();
   const todayRow = React.useMemo(() => dailyProfit(db, today, today)[0], [db, today]);
   const rows = React.useMemo(() => dailyProfit(db, r.from, r.to), [db, r.from, r.to]);
-  const t = rows.reduce((a, x) => ({ cash: a.cash + x.cash, upi: a.upi + x.upi, other: a.other + x.other, collected: a.collected + x.collected, expenses: a.expenses + x.expenses, net: a.net + x.net, pending: a.pending + x.pendingCollected }), { cash: 0, upi: 0, other: 0, collected: 0, expenses: 0, net: 0, pending: 0 });
-  const chart = rows.slice().reverse().map((x) => ({ date: x.date, Collected: x.collected, Expenses: x.expenses, Net: x.net }));
+  const t = rows.reduce((a, x) => ({ sales: a.sales + x.sales, purchases: a.purchases + x.purchases, expenses: a.expenses + x.expenses, net: a.net + x.net, pending: a.pending + x.pendingSales }), { sales: 0, purchases: 0, expenses: 0, net: 0, pending: 0 });
+  const chart = rows.slice().reverse().map((x) => ({ date: x.date, Sales: x.sales, Purchases: x.purchases, Expenses: x.expenses, Net: x.net }));
   const exportCsv = () => downloadCSV(`daily_profit_${r.from}_${r.to}.csv`, [
-    ["Date", "Cash collected", "UPI collected", "Cheque / NEFT", "Total collected", "Expenses", "Net profit / loss", "Awaiting approval (not counted)"],
-    ...rows.map((x) => [x.date, x.cash, x.upi, x.other, x.collected, x.expenses, x.net, x.pendingCollected]),
-    ["Total", t.cash, t.upi, t.other, t.collected, t.expenses, t.net, t.pending],
+    ["Date", "Sales (incl GST)", "Purchases (incl GST)", "Expenses", "Net profit / loss", "Deliveries awaiting approval (not counted)"],
+    ...rows.map((x) => [x.date, x.sales, x.purchases, x.expenses, x.net, x.pendingSales]),
+    ["Total", t.sales, t.purchases, t.expenses, t.net, t.pending],
   ]);
 
   return (
     <>
-      <PageHeader title="Daily profit" description="Net profit or loss = total amount collected that day (cash + UPI + cheque/NEFT) − that day's expenses." actions={<BookExpenseButton />} />
-      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StatCard label="Collected today" value={rupees(todayRow.collected)} hint={`Cash ${rupees(todayRow.cash)} · UPI ${rupees(todayRow.upi)}`} icon={Wallet} onClick={() => setOpen(todayRow)} />
+      <PageHeader title="Daily profit" description="Net profit or loss = that day's sales − purchases from the plant − expenses. Only the owner can see this page." actions={<BookExpenseButton />} />
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Sales today" value={rupees(todayRow.sales)} hint={`${todayRow.salesCount} invoices`} icon={Wallet} onClick={() => setOpen(todayRow)} />
+        <StatCard label="Purchases today" value={rupees(todayRow.purchases)} hint={`${todayRow.purchaseCount} plant receipts`} icon={IndianRupee} onClick={() => setOpen(todayRow)} />
         <StatCard label="Expenses today" value={rupees(todayRow.expenses)} icon={Receipt} tone={todayRow.expenses ? "warning" : "default"} onClick={() => setOpen(todayRow)} />
         <StatCard label={todayRow.net >= 0 ? "Net profit today" : "Net loss today"} value={netText(todayRow.net)} icon={todayRow.net >= 0 ? TrendingUp : TrendingDown} tone={todayRow.net > 0 ? "success" : todayRow.net < 0 ? "danger" : "default"} highlight onClick={() => setOpen(todayRow)}
-          hint={todayRow.pendingCollected > 0 ? `+ ${rupees(todayRow.pendingCollected)} waiting for approval` : undefined} />
+          hint={todayRow.pendingSales > 0 ? `+ ${rupees(todayRow.pendingSales)} awaiting approval` : undefined} />
       </div>
 
       <Card>
         <CardHeader className="gap-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
-            <div><CardTitle>Day by day</CardTitle><CardDescription className="mt-1">Tap a day to see where the money went.</CardDescription></div>
+            <div><CardTitle>Day by day</CardTitle><CardDescription className="mt-1">Tap a day to see each purchase and expense.</CardDescription></div>
             <ExportButton onClick={exportCsv} />
           </div>
           <DateRange from={r.from} to={r.to} onChange={r.set} />
@@ -387,8 +402,9 @@ export function ProfitView() {
                   <YAxis tickFormatter={axisMoney} stroke="var(--muted-foreground)" fontSize={11} tickLine={false} axisLine={false} width={56} />
                   <Tooltip content={<ProfitTooltip />} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="Collected" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={28} />
-                  <Bar dataKey="Expenses" fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={28} />
+                  <Bar dataKey="Sales" fill="var(--success)" radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="Purchases" fill="var(--warning)" radius={[3, 3, 0, 0]} maxBarSize={24} />
+                  <Bar dataKey="Expenses" fill="var(--destructive)" radius={[3, 3, 0, 0]} maxBarSize={24} />
                   <Line dataKey="Net" stroke="var(--foreground)" strokeWidth={2} dot={{ r: 2.5 }} type="monotone" />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -396,29 +412,30 @@ export function ProfitView() {
           )}
           <Table className="text-xs sm:text-sm">
             <TableHeader><TableRow>
-              <TableHead>Date</TableHead><TableHead className="hidden text-right sm:table-cell">Cash</TableHead><TableHead className="hidden text-right sm:table-cell">UPI</TableHead>
-              <TableHead className="text-right">Collected</TableHead><TableHead className="text-right">Expenses</TableHead><TableHead className="text-right"><span className="sm:hidden">Net</span><span className="hidden sm:inline">Net profit / loss</span></TableHead>
+              <TableHead>Date</TableHead><TableHead className="text-right">Sales</TableHead><TableHead className="hidden text-right sm:table-cell">Purchases</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">Expenses</TableHead><TableHead className="text-right sm:hidden">Purchases + expenses</TableHead><TableHead className="text-right"><span className="sm:hidden">Net</span><span className="hidden sm:inline">Net profit / loss</span></TableHead>
             </TableRow></TableHeader>
             <TableBody>
               {rows.map((x) => (
                 <TableRow key={x.date} className="cursor-pointer" onClick={() => setOpen(x)}>
                   <TableCell className="whitespace-nowrap">{fmtDateShort(x.date)}{x.date === today && <Badge variant="secondary" className="ml-1.5 hidden sm:inline-flex">Today</Badge>}</TableCell>
-                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.cash)}</TableCell>
-                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.upi)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{rupees(x.collected)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{rupees(x.expenses)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{rupees(x.sales)}</TableCell>
+                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.purchases)}</TableCell>
+                  <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(x.expenses)}</TableCell>
+                  <TableCell className="text-right tabular-nums sm:hidden">{rupees(x.purchases + x.expenses)}</TableCell>
                   <TableCell className={cn("text-right font-semibold tabular-nums", netClass(x.net))}>{netText(x.net)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
             <TableFooter><TableRow>
-              <TableCell>Total</TableCell><TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.cash)}</TableCell><TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.upi)}</TableCell>
-              <TableCell className="text-right tabular-nums">{rupees(t.collected)}</TableCell><TableCell className="text-right tabular-nums">{rupees(t.expenses)}</TableCell>
+              <TableCell>Total</TableCell><TableCell className="text-right tabular-nums">{rupees(t.sales)}</TableCell><TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.purchases)}</TableCell>
+              <TableCell className="hidden text-right tabular-nums sm:table-cell">{rupees(t.expenses)}</TableCell>
+              <TableCell className="text-right tabular-nums sm:hidden">{rupees(t.purchases + t.expenses)}</TableCell>
               <TableCell className={cn("text-right font-semibold tabular-nums", netClass(t.net))}>{netText(t.net)}</TableCell>
             </TableRow></TableFooter>
           </Table>
           <p className="text-xs text-muted-foreground">
-            Collected = payments recorded that day: approved deliveries and payments taken at the office.{t.pending > 0 && ` ${rupees(t.pending)} collected on deliveries still waiting for approval isn't counted yet.`} Cylinder purchases from the plant are not included here.
+            Sales and purchases are invoice amounts including GST, by invoice date. Plant purchases count on the day the stock is received, so days with a plant receipt can show a loss.{t.pending > 0 && ` Deliveries worth ${rupees(t.pending)} are waiting for approval and aren't counted yet.`}
           </p>
         </CardContent>
       </Card>

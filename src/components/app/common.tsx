@@ -280,3 +280,20 @@ export function PayStatusBadge({ paid, bill }: { paid: number; bill: number }) {
   if (st === "part") return <Badge variant="warning">Part paid · {rupees(bill - paid)} due</Badge>;
   return <Badge variant="outline">Not paid · on account</Badge>;
 }
+
+// ---------- phone list row (used instead of wide tables on small screens) ----------
+
+export function PhoneRow({ title, sub, right, rightSub, onClick, children }: {
+  title: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode; rightSub?: React.ReactNode; onClick?: () => void; children?: React.ReactNode;
+}) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag type={onClick ? "button" : undefined} onClick={onClick} className={cn("grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-1 rounded-lg border p-3 text-left text-sm", onClick && "active:bg-accent/60")}>
+      <span className="flex items-start justify-between gap-3">
+        <span className="min-w-0 flex-1"><span className="block truncate font-medium">{title}</span>{sub && <span className="block text-xs text-muted-foreground">{sub}</span>}</span>
+        {(right || rightSub) && <span className="shrink-0 text-right"><span className="block font-medium tabular-nums">{right}</span>{rightSub && <span className="block text-xs text-muted-foreground">{rightSub}</span>}</span>}
+      </span>
+      {children}
+    </Tag>
+  );
+}

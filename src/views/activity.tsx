@@ -22,6 +22,7 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   team_changed: "Team changed", opening_stock: "Opening stock",
   receipt_attached: "Receipt uploaded", receipt_removed: "Receipt removed",
   expense_added: "Expense booked", expense_deleted: "Expense deleted",
+  order_placed: "Order placed", order_accepted: "Order accepted", order_rejected: "Order rejected", order_cancelled: "Order cancelled", order_delivered: "Order delivered",
 };
 const SENSITIVE: AuditAction[] = ["login_failed", "settings_changed", "customer_edited", "demo_reset", "delivery_rejected", "view_as", "team_changed", "opening_stock", "receipt_removed", "expense_deleted"];
 
