@@ -12,6 +12,7 @@ import { ReportsView } from "./reports";
 import { ActivityView } from "./activity";
 import { ExpensesView, ProfitView } from "./expenses";
 import { MyOrdersView, OrderCylindersView, OrdersView } from "./orders";
+import { VisualView } from "./visual";
 import { MovementsView, StockView } from "./stock";
 import { WarehouseHome } from "./warehouse-home";
 import { useStore } from "@/lib/store";
@@ -44,6 +45,7 @@ export const ROUTES: RouteDef[] = [
   { pattern: "/approvals", roles: OW, render: () => <ApprovalsView /> },
   { pattern: "/reconciliation", roles: OW, render: () => <ReconciliationView /> },
   { pattern: "/purchases", roles: OW, render: () => <PurchasesView /> },
+  { pattern: "/3d", roles: OW, render: () => <VisualView /> },
   { pattern: "/orders", roles: OW, render: () => <OrdersView /> },
   { pattern: "/me/order", roles: ["customer"], render: () => <OrderCylindersView /> },
   { pattern: "/me/orders", roles: ["customer"], render: () => <MyOrdersView /> },

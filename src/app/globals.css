@@ -356,3 +356,17 @@ body {
 @media (prefers-reduced-motion: reduce) {
   [data-style="studio"] main [data-slot="card"] { animation: none; }
 }
+
+/* 3D view labels (drawn over the canvas, always light like the scene) */
+.viz-label { transform: translateY(-50%); display: grid; gap: 1px; padding: 4px 9px; border-radius: 10px; background: rgb(255 255 255 / 0.92); color: #1f2430; font: 500 11px/1.25 var(--font-sans, system-ui), sans-serif; text-align: center; white-space: nowrap; box-shadow: 0 6px 18px -6px rgb(20 30 50 / 0.28), 0 1px 2px rgb(20 30 50 / 0.12); border: 1px solid rgb(20 30 50 / 0.06); backdrop-filter: blur(4px); }
+.viz-label b { font-weight: 650; font-size: 12px; }
+.viz-label span { color: #5b6272; font-size: 10.5px; }
+.viz-label.viz-main { padding: 6px 12px; }
+.viz-label.viz-main b { font-size: 13px; }
+.viz-label.viz-truck { padding: 2px 7px; border-radius: 8px; }
+.viz-label.viz-truck b { font-size: 11px; }
+.viz-label.viz-out { border-color: rgb(37 99 235 / 0.35); }
+.viz-label.viz-alert { border-color: rgb(245 158 11 / 0.6); box-shadow: 0 0 0 3px rgb(245 158 11 / 0.18), 0 6px 18px -6px rgb(20 30 50 / 0.28); }
+.viz-compact .viz-label span { display: none; }
+.viz-compact .viz-label { padding: 2px 7px; }
+.viz-compact .viz-label b { font-size: 10.5px; }

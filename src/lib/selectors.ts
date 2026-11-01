@@ -255,9 +255,13 @@ export function profitAndLoss(db: DB, from: string, to: string): PLStatement {
   const moves = db.movements.slice().sort((a, b) => (at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : 0));
   const qty: Record<string, number> = {};
   let mi = 0;
+  // Cylinders handed over on deliveries still waiting for approval are not billed yet,
+  // so they stay in our stock until the delivery is approved (or come back if rejected).
+  const pendingIds = new Set(db.deliveries.filter((d) => d.status === "pending").map((d) => d.id));
   const qtyUpTo = (iso: string, inclusive: boolean) => {
     while (mi < moves.length && (inclusive ? at(moves[mi]) <= iso : at(moves[mi]) < iso)) {
       const m = moves[mi++];
+      if (m.refType === "delivery" && m.refId && pendingIds.has(m.refId)) continue;
       if (m.state === "full" && isStockLoc(m.from)) qty[m.size] = (qty[m.size] ?? 0) - m.qty;
       if ((m.toState ?? m.state) === "full" && isStockLoc(m.to)) qty[m.size] = (qty[m.size] ?? 0) + m.qty;
     }

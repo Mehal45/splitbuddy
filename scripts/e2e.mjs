@@ -20,7 +20,7 @@ const server = http.createServer((req, res) => {
   fs.createReadStream(f).pipe(res);
 }).listen(0);
 const base = `http://localhost:${server.address().port}/`;
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium" });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || "/opt/pw-browsers/chromium", args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 const errors = [];
@@ -340,6 +340,16 @@ await page.getByText("Expense deleted").waitFor();
 const afterDel = await db();
 if (afterDel.expenses.some((e) => e.id === ex.id) || !afterDel.audit.some((a) => a.action === "expense_deleted" && a.detail.includes(ex.no))) throw new Error("expense delete not logged");
 step("owner deleted the expense; activity log keeps the record");
+
+// 3D view: scene draws, and picking a truck shows its details
+await page.goto(base + "#/3d");
+await page.getByText("Main warehouse").first().waitFor({ timeout: 30000 });
+if (await page.getByText("3D isn't available").count()) throw new Error("3D view failed to start");
+const vt = (await db()).trucks[0];
+await page.getByRole("button", { name: new RegExp(vt.regNo) }).first().click();
+await page.getByText("Full on truck").waitFor();
+await page.getByRole("button", { name: "Close details" }).click();
+step("3D view renders the warehouse, areas and trucks; selecting a truck shows its details");
 
 // Reports export
 await page.goto(base + "#/reports");

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import {
-  Bell, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
+  Bell, Box, Boxes, ClipboardCheck, Eye, Factory, FileBarChart, History, LayoutDashboard, LogOut, Menu, Monitor, Moon, PackagePlus,
   Receipt, RefreshCw, Scale, Settings, ShoppingCart, Sun, TrendingUp, Truck, Users, Wallet, ListChecks, Home, Flame, Check, Sparkles, Undo2, ShieldCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +27,7 @@ export const NAV: Record<Role, NavItem[]> = {
   owner: [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/alerts", label: "Alerts", icon: Bell, badge: "alerts" },
+    { href: "/3d", label: "3D view", icon: Box },
     { href: "/orders", label: "Customer orders", icon: ShoppingCart, badge: "orders" },
     { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
     { href: "/loads", label: "Load sheets", icon: Truck },
@@ -47,6 +48,7 @@ export const NAV: Record<Role, NavItem[]> = {
   warehouse: [
     { href: "/", label: "Today", icon: LayoutDashboard },
     { href: "/orders", label: "Customer orders", icon: ShoppingCart, badge: "orders" },
+    { href: "/3d", label: "3D view", icon: Box },
     { href: "/loads", label: "Load sheets", icon: Truck },
     { href: "/approvals", label: "Approvals", icon: ClipboardCheck, badge: "pending" },
     { href: "/purchases", label: "Stock receipts", icon: PackagePlus },
