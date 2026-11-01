@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "serve out -l 3000",
+    "start": "npx --yes serve@14 out -l 3000",
     "lint": "eslint",
     "check:data": "tsx scripts/check-seed.ts",
     "test:e2e": "node scripts/e2e.mjs",
