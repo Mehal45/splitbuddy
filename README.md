@@ -42,7 +42,7 @@ Production build (static files in `out/`):
 
 ```bash
 npm run build
-npx serve out
+npm start        # serves the built app at http://localhost:3000
 ```
 
 ## Deploy free on Vercel
