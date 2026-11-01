@@ -103,6 +103,8 @@ export class LiveScene {
     this.ready = this.loadModels();
     this.renderer.domElement.addEventListener("pointerdown", this.onDown);
     this.renderer.domElement.addEventListener("pointerup", this.onUp);
+    this.renderer.domElement.addEventListener("pointermove", this.onMove);
+    this.renderer.domElement.addEventListener("pointerleave", this.onLeave);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     this.loop();
@@ -216,6 +218,8 @@ export class LiveScene {
   async update(model: SceneModel) {
     await this.ready;
     if (this.disposed) return;
+    // CSS labels live in the DOM: take the old ones out before rebuilding
+    this.dynamic.traverse((o) => { if (o instanceof CSS2DObject) o.element.remove(); });
     this.dynamic.clear();
     this.picks = [];
     this.areaPos.clear();
@@ -296,6 +300,7 @@ export class LiveScene {
 
     this.syncTrucks(model.trucks);
     this.placeRing();
+    this.refreshLabels();
     if (!this.framed) this.frame(model);
   }
 
@@ -382,6 +387,7 @@ export class LiveScene {
     });
     for (const [id, o] of this.trucks) {
       if (seen.has(id)) continue;
+      o.label.element.remove();
       this.scene.remove(o.group);
       this.trucks.delete(id);
     }
@@ -446,21 +452,60 @@ export class LiveScene {
 
   private down = { x: 0, y: 0 };
   private onDown = (e: PointerEvent) => { this.down = { x: e.clientX, y: e.clientY }; };
-  private onUp = (e: PointerEvent) => {
-    if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 6) return; // was a drag
+  private pickAt(e: PointerEvent): Pick | null {
     const r = this.renderer.domElement.getBoundingClientRect();
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), this.camera);
     const hit = ray.intersectObjects(this.picks, true)[0];
     let o: THREE.Object3D | null = hit?.object ?? null;
     while (o && !o.userData.pick) o = o.parent;
-    this.select((o?.userData.pick as Pick | undefined) ?? null);
+    return (o?.userData.pick as Pick | undefined) ?? null;
+  }
+  private onUp = (e: PointerEvent) => {
+    if (Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y) > 6) return; // was a drag
+    this.select(this.pickAt(e));
     this.onPick(this.selected);
   };
+
+  // Labels show just the name; the numbers appear on hover (or when selected, for touch screens)
+  private hovered: Pick | null = null;
+  private moveQueued = false;
+  private onMove = (e: PointerEvent) => {
+    if (e.pointerType === "touch" || this.moveQueued) return;
+    this.moveQueued = true;
+    requestAnimationFrame(() => {
+      this.moveQueued = false;
+      const p = this.pickAt(e);
+      if (p?.kind === this.hovered?.kind && p?.id === this.hovered?.id) return;
+      this.hovered = p;
+      this.renderer.domElement.style.cursor = p ? "pointer" : "";
+      this.refreshLabels();
+    });
+  };
+  private onLeave = () => { this.hovered = null; this.renderer.domElement.style.cursor = ""; this.refreshLabels(); };
+
+  private labelFor(p: Pick): HTMLElement | undefined {
+    if (p.kind === "truck") return this.trucks.get(p.id)?.label.element;
+    const g = this.picks.find((x) => { const q = x.userData.pick as Pick; return q.kind === p.kind && q.id === p.id; });
+    let el: HTMLElement | undefined;
+    g?.traverse((o) => { if (!el && o instanceof CSS2DObject) el = o.element; });
+    return el;
+  }
+
+  private refreshLabels() {
+    this.labels.domElement.querySelectorAll(".viz-open").forEach((el) => el.classList.remove("viz-open"));
+    for (const p of [this.hovered, this.selected]) if (p) this.labelFor(p)?.classList.add("viz-open");
+    // A parked truck has no label until you point at it
+    for (const [id, o] of this.trucks) {
+      const on = (this.hovered?.kind === "truck" && this.hovered.id === id) || (this.selected?.kind === "truck" && this.selected.id === id);
+      o.label.visible = o.data.status === "out" || on;
+    }
+  }
 
   select(p: Pick | null) {
     this.selected = p;
     this.placeRing();
+    this.refreshLabels();
   }
 
   private placeRing() {
@@ -499,6 +544,8 @@ export class LiveScene {
     this.controls.dispose();
     this.renderer.domElement.removeEventListener("pointerdown", this.onDown);
     this.renderer.domElement.removeEventListener("pointerup", this.onUp);
+    this.renderer.domElement.removeEventListener("pointermove", this.onMove);
+    this.renderer.domElement.removeEventListener("pointerleave", this.onLeave);
     this.renderer.dispose();
     this.host.replaceChildren();
   }
