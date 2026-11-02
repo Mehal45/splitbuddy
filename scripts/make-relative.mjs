@@ -22,7 +22,7 @@ await build({
   target: "es2020",
   jsx: "automatic",
   alias: { "@": path.resolve("src") },
-  define: { "process.env.NODE_ENV": '"production"' },
+  define: { "process.env.NODE_ENV": '"production"', "process.env.NEXT_PUBLIC_SUPABASE_URL": '""', "process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY": '""' },
   outfile: path.join(dst, "app.js"),
   logLevel: "error",
 });
