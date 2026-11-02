@@ -124,6 +124,8 @@ type ThemePref = "light" | "dark" | "system";
 function applyTheme(t: ThemePref) {
   try { localStorage.setItem("anmol-theme", t); } catch { /* private mode */ }
   const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  // The page keeps this choice even if an embedding page tries to change the theme attribute
+  (window as unknown as { __anmolTheme?: string }).__anmolTheme = dark ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
 }
 
