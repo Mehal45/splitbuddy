@@ -334,7 +334,7 @@ function CustomerDialog({ customer, onClose }: { customer: Customer | null; onCl
   const [held, setHeld] = React.useState<Record<string, number>>({});
   const [f, setF] = React.useState<Customer>(() => customer ? structuredClone(customer) : {
     id: "", code: "", name: "", businessName: "", type: "commercial", category: "Restaurant", gstin: "", phone: "", address: "", area: "Jayanagar", state: "Karnataka",
-    lat: 12.925, lng: 77.5938, creditLimit: 50000, depositCylinders: { "19": 4 }, depositAmount: 14000, paymentMode: "credit", openingOutstanding: 0, openingEmpties: {},
+    lat: 12.925, lng: 77.5938, creditLimit: 0, depositCylinders: {}, depositAmount: 0, paymentMode: "cod", openingOutstanding: 0, openingEmpties: {},
   });
   const set = <K extends keyof Customer>(k: K, v: Customer[K]) => setF({ ...f, [k]: v });
   const areas = [...new Set([...Object.keys(AREAS), ...db.customers.map((c) => c.area)])].sort();

@@ -12,7 +12,8 @@
     "screenshots": "node scripts/shots.mjs",
     "preview:relative": "node scripts/make-relative.mjs",
     "build:static": "node scripts/build-static.mjs",
-    "start:static": "npx --yes serve@14 out -l 3000"
+    "start:static": "npx --yes serve@14 out -l 3000",
+    "test:full": "node scripts/full-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

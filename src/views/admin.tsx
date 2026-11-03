@@ -197,10 +197,10 @@ export function SettingsView() {
         <Card>
           <CardHeader><CardTitle>Agency</CardTitle></CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5"><Label>Agency name</Label><Input value={s.agencyName} onChange={(e) => setS({ ...s, agencyName: e.target.value })} /></div>
-            <div className="grid gap-1.5"><Label>Tagline</Label><Input value={s.agencyTagline} onChange={(e) => setS({ ...s, agencyTagline: e.target.value })} /></div>
-            <div className="grid gap-1.5"><Label>GSTIN</Label><Input className="font-mono" value={s.agencyGstin} onChange={(e) => setS({ ...s, agencyGstin: e.target.value.toUpperCase() })} /></div>
-            <div className="grid gap-1.5"><Label>Address</Label><Input value={s.agencyAddress} onChange={(e) => setS({ ...s, agencyAddress: e.target.value })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-1">Agency name</Label><Input id="set-1" value={s.agencyName} onChange={(e) => setS({ ...s, agencyName: e.target.value })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-2">Tagline</Label><Input id="set-2" value={s.agencyTagline} onChange={(e) => setS({ ...s, agencyTagline: e.target.value })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-3">GSTIN</Label><Input id="set-3" className="font-mono" value={s.agencyGstin} onChange={(e) => setS({ ...s, agencyGstin: e.target.value.toUpperCase() })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-4">Address</Label><Input id="set-4" value={s.agencyAddress} onChange={(e) => setS({ ...s, agencyAddress: e.target.value })} /></div>
             {!LIVE && <div className="grid gap-1.5"><Label htmlFor="pin">Owner login PIN (4 digits)</Label><Input id="pin" type="password" autoComplete="new-password" inputMode="numeric" maxLength={4} className="w-32 tabular-nums" value={s.ownerPin ?? "1234"} onChange={(e) => setS({ ...s, ownerPin: e.target.value.replace(/\D/g, "").slice(0, 4) })} /></div>}
           </CardContent>
         </Card>
@@ -234,9 +234,9 @@ export function SettingsView() {
         <Card>
           <CardHeader><CardTitle>Alert thresholds</CardTitle></CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-3">
-            <div className="grid gap-1.5"><Label>Approval overdue after (hours)</Label><Input inputMode="numeric" value={s.pendingApprovalHours} onChange={(e) => setS({ ...s, pendingApprovalHours: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
-            <div className="grid gap-1.5"><Label>Allowed empties above deposit</Label><Input inputMode="numeric" value={s.emptiesTolerance} onChange={(e) => setS({ ...s, emptiesTolerance: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
-            <div className="grid gap-1.5"><Label>GPS distance limit (km)</Label><Input inputMode="decimal" value={s.gpsMaxDistanceKm} onChange={(e) => setS({ ...s, gpsMaxDistanceKm: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-5">Approval overdue after (hours)</Label><Input id="set-5" inputMode="numeric" value={s.pendingApprovalHours} onChange={(e) => setS({ ...s, pendingApprovalHours: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-6">Allowed empties above deposit</Label><Input id="set-6" inputMode="numeric" value={s.emptiesTolerance} onChange={(e) => setS({ ...s, emptiesTolerance: Number(e.target.value.replace(/\D/g, "")) || 0 })} /></div>
+            <div className="grid gap-1.5"><Label htmlFor="set-7">GPS distance limit (km)</Label><Input id="set-7" inputMode="decimal" value={s.gpsMaxDistanceKm} onChange={(e) => setS({ ...s, gpsMaxDistanceKm: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} /></div>
           </CardContent>
         </Card>
 
